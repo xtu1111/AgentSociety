@@ -1,0 +1,1028 @@
+[
+  {
+    "name": "John Miller",
+    "gender": "Male",
+    "age": 35,
+    "occupation": "Construction Worker",
+    "bio": "John Miller, 35, is a construction worker from Ohio who enjoys weekend fishing trips and values hard work.",
+    "personality": "practical and friendly",
+    "connections": [
+      {
+        "source": 1,
+        "target": 2,
+        "kind": "spouse",
+        "strength": 0.9
+      }
+    ],
+    "id": 1,
+    "interests": [
+      "environment",
+      "food"
+    ]
+  },
+  {
+    "name": "Emily Davis",
+    "gender": "Female",
+    "age": 29,
+    "occupation": "Nurse",
+    "bio": "Emily Davis, 29, is a registered nurse in Florida committed to caring for her patients and staying active.",
+    "personality": "caring and energetic",
+    "connections": [
+      {
+        "source": 2,
+        "target": 1,
+        "kind": "spouse",
+        "strength": 0.9
+      }
+    ],
+    "id": 2,
+    "interests": [
+      "fitness",
+      "family"
+    ]
+  },
+  {
+    "name": "Michael Johnson",
+    "gender": "Male",
+    "age": 42,
+    "occupation": "Sales Manager",
+    "bio": "Michael Johnson, 42, is a sales manager from Illinois who is driven and keeps up with market trends.",
+    "personality": "ambitious and outgoing",
+    "connections": [
+      {
+        "source": 3,
+        "target": 4,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 3,
+        "target": 5,
+        "kind": "sibling",
+        "strength": 0.8
+      }
+    ],
+    "id": 3,
+    "interests": [
+      "travel",
+      "sports"
+    ]
+  },
+  {
+    "name": "Sarah Brown",
+    "gender": "Female",
+    "age": 31,
+    "occupation": "Teacher",
+    "bio": "Sarah Brown, 31, teaches fourth grade in California and loves volunteering at her local library.",
+    "personality": "patient and nurturing",
+    "connections": [
+      {
+        "source": 4,
+        "target": 3,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 4,
+        "target": 5,
+        "kind": "sibling",
+        "strength": 0.8
+      }
+    ],
+    "id": 4,
+    "interests": [
+      "environment",
+      "family"
+    ]
+  },
+  {
+    "name": "David Wilson",
+    "gender": "Male",
+    "age": 38,
+    "occupation": "Police Officer",
+    "bio": "David Wilson, 38, is a police officer in Texas dedicated to his community and physical fitness.",
+    "personality": "disciplined and protective",
+    "connections": [
+      {
+        "source": 5,
+        "target": 3,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 5,
+        "target": 4,
+        "kind": "sibling",
+        "strength": 0.8
+      }
+    ],
+    "id": 5,
+    "interests": [
+      "sports",
+      "health"
+    ]
+  },
+  {
+    "name": "Jessica Taylor",
+    "gender": "Female",
+    "age": 26,
+    "occupation": "Graphic Designer",
+    "bio": "Jessica Taylor, 26, is a graphic designer in New York who follows creative trends and coffee culture.",
+    "personality": "creative and sociable",
+    "connections": [
+      {
+        "source": 6,
+        "target": 7,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 6,
+        "target": 8,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 6,
+    "interests": [
+      "food",
+      "gaming"
+    ]
+  },
+  {
+    "name": "Daniel Anderson",
+    "gender": "Male",
+    "age": 45,
+    "occupation": "Electrician",
+    "bio": "Daniel Anderson, 45, works as an electrician in Michigan, enjoys DIY projects and classic rock.",
+    "personality": "reliable and reserved",
+    "connections": [
+      {
+        "source": 7,
+        "target": 6,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 7,
+        "target": 10,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 7,
+    "interests": [
+      "travel",
+      "finance"
+    ]
+  },
+  {
+    "name": "Ashley Thomas",
+    "gender": "Female",
+    "age": 33,
+    "occupation": "Restaurant Manager",
+    "bio": "Ashley Thomas, 33, manages a family-owned restaurant in Georgia and is active in local events.",
+    "personality": "organized and hospitable",
+    "connections": [
+      {
+        "source": 8,
+        "target": 6,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "kind": "cousin",
+        "strength": 0.7
+      }
+    ],
+    "id": 8,
+    "interests": [
+      "family",
+      "finance"
+    ]
+  },
+  {
+    "name": "Matthew Moore",
+    "gender": "Male",
+    "age": 27,
+    "occupation": "Mechanic",
+    "bio": "Matthew Moore, 27, is an auto mechanic in Arizona who likes car shows and college football.",
+    "personality": "hands-on and loyal",
+    "connections": [
+      {
+        "source": 9,
+        "target": 7,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 9,
+        "target": 8,
+        "kind": "cousin",
+        "strength": 0.7
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "kind": "cousin",
+        "strength": 0.7
+      }
+    ],
+    "id": 9,
+    "interests": [
+      "technology",
+      "family"
+    ]
+  },
+  {
+    "name": "Brittany Martin",
+    "gender": "Female",
+    "age": 28,
+    "occupation": "Pharmacy Technician",
+    "bio": "Brittany Martin, 28, is a pharmacy technician in Washington state who enjoys hiking and healthy living.",
+    "personality": "health-conscious and optimistic",
+    "connections": [
+      {
+        "source": 10,
+        "target": 9,
+        "kind": "cousin",
+        "strength": 0.7
+      },
+      {
+        "source": 10,
+        "target": 7,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 10,
+    "interests": [
+      "travel",
+      "finance"
+    ]
+  },
+  {
+    "name": "Andrew Jackson",
+    "gender": "Male",
+    "age": 50,
+    "occupation": "Truck Driver",
+    "bio": "Andrew Jackson, 50, is a long-haul truck driver from Missouri who listens to podcasts on the road.",
+    "personality": "independent and steady",
+    "connections": [
+      {
+        "source": 11,
+        "target": 12,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 11,
+        "target": 13,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 11,
+        "target": 14,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 11,
+    "interests": [
+      "family",
+      "technology"
+    ]
+  },
+  {
+    "name": "Samantha Lee",
+    "gender": "Female",
+    "age": 30,
+    "occupation": "Social Worker",
+    "bio": "Samantha Lee, 30, is a social worker in Oregon passionate about community outreach.",
+    "personality": "empathetic and thoughtful",
+    "connections": [
+      {
+        "source": 12,
+        "target": 11,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 12,
+        "target": 15,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 12,
+        "target": 16,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 12,
+        "target": 19,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 12,
+    "interests": [
+      "technology",
+      "health"
+    ]
+  },
+  {
+    "name": "Joseph Harris",
+    "gender": "Male",
+    "age": 36,
+    "occupation": "IT Specialist",
+    "bio": "Joseph Harris, 36, is an IT specialist in Virginia who keeps up with the latest gadgets and gaming.",
+    "personality": "analytical and curious",
+    "connections": [
+      {
+        "source": 13,
+        "target": 11,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 13,
+        "target": 14,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 13,
+        "target": 17,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 13,
+    "interests": [
+      "sports",
+      "travel"
+    ]
+  },
+  {
+    "name": "Olivia Clark",
+    "gender": "Female",
+    "age": 25,
+    "occupation": "Barista",
+    "bio": "Olivia Clark, 25, is a barista in Colorado who loves outdoor adventures and art.",
+    "personality": "artistic and free-spirited",
+    "connections": [
+      {
+        "source": 14,
+        "target": 11,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 14,
+        "target": 13,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 14,
+        "target": 18,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 14,
+    "interests": [
+      "technology",
+      "health"
+    ]
+  },
+  {
+    "name": "Christopher Lewis",
+    "gender": "Male",
+    "age": 40,
+    "occupation": "Accountant",
+    "bio": "Christopher Lewis, 40, is an accountant in New Jersey who values stability and family time.",
+    "personality": "detail-oriented and cautious",
+    "connections": [
+      {
+        "source": 15,
+        "target": 12,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 15,
+        "target": 16,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 15,
+        "target": 19,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 15,
+    "interests": [
+      "environment",
+      "health"
+    ]
+  },
+  {
+    "name": "Amanda Robinson",
+    "gender": "Female",
+    "age": 34,
+    "occupation": "Marketing Coordinator",
+    "bio": "Amanda Robinson, 34, coordinates marketing campaigns for a small business in Tennessee.",
+    "personality": "innovative and upbeat",
+    "connections": [
+      {
+        "source": 16,
+        "target": 12,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 16,
+        "target": 15,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 16,
+        "target": 20,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 16,
+    "interests": [
+      "food",
+      "gaming"
+    ]
+  },
+  {
+    "name": "Joshua Walker",
+    "gender": "Male",
+    "age": 32,
+    "occupation": "Firefighter",
+    "bio": "Joshua Walker, 32, is a firefighter in Nevada committed to public safety and teamwork.",
+    "personality": "brave and community-minded",
+    "connections": [
+      {
+        "source": 17,
+        "target": 13,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 17,
+        "target": 18,
+        "kind": "cousin",
+        "strength": 0.7
+      }
+    ],
+    "id": 17,
+    "interests": [
+      "travel",
+      "sports"
+    ]
+  },
+  {
+    "name": "Megan Perez",
+    "gender": "Female",
+    "age": 27,
+    "occupation": "Retail Associate",
+    "bio": "Megan Perez, 27, works retail in New Mexico and stays connected on social media.",
+    "personality": "social and trend-aware",
+    "connections": [
+      {
+        "source": 18,
+        "target": 14,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 18,
+        "target": 17,
+        "kind": "cousin",
+        "strength": 0.7
+      },
+      {
+        "source": 18,
+        "target": 20,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 18,
+    "interests": [
+      "sports",
+      "travel"
+    ]
+  },
+  {
+    "name": "Nicholas Hall",
+    "gender": "Male",
+    "age": 41,
+    "occupation": "Plumber",
+    "bio": "Nicholas Hall, 41, is a plumber in Pennsylvania who enjoys hunting and local sports.",
+    "personality": "down-to-earth and hardworking",
+    "connections": [
+      {
+        "source": 19,
+        "target": 15,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 19,
+        "target": 20,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 19,
+        "target": 12,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 19,
+    "interests": [
+      "family",
+      "fitness"
+    ]
+  },
+  {
+    "name": "Hannah Young",
+    "gender": "Female",
+    "age": 24,
+    "occupation": "Student",
+    "bio": "Hannah Young, 24, is a college student in Massachusetts studying journalism.",
+    "personality": "curious and idealistic",
+    "connections": [
+      {
+        "source": 20,
+        "target": 16,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 20,
+        "target": 18,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 20,
+        "target": 19,
+        "kind": "spouse",
+        "strength": 0.9
+      }
+    ],
+    "id": 20,
+    "interests": [
+      "travel",
+      "fitness"
+    ]
+  },
+  {
+    "name": "Brandon Allen",
+    "gender": "Male",
+    "age": 29,
+    "occupation": "Warehouse Worker",
+    "bio": "Brandon Allen, 29, works in a warehouse in Indiana and likes video games and basketball.",
+    "personality": "easygoing and competitive",
+    "connections": [
+      {
+        "source": 21,
+        "target": 22,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 21,
+        "target": 23,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 21,
+        "target": 24,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 21,
+        "target": 25,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 21,
+        "target": 26,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 21,
+        "target": 29,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 21,
+    "interests": [
+      "technology",
+      "environment"
+    ]
+  },
+  {
+    "name": "Lauren Hernandez",
+    "gender": "Female",
+    "age": 37,
+    "occupation": "Dental Hygienist",
+    "bio": "Lauren Hernandez, 37, is a dental hygienist in California who values family and fitness.",
+    "personality": "meticulous and caring",
+    "connections": [
+      {
+        "source": 22,
+        "target": 21,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 22,
+        "target": 24,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 22,
+        "target": 26,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 22,
+        "target": 27,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 22,
+        "target": 29,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 22,
+    "interests": [
+      "fitness",
+      "sports"
+    ]
+  },
+  {
+    "name": "Tyler King",
+    "gender": "Male",
+    "age": 31,
+    "occupation": "Carpenter",
+    "bio": "Tyler King, 31, is a carpenter in Kentucky who enjoys woodworking and country music.",
+    "personality": "crafty and laid-back",
+    "connections": [
+      {
+        "source": 23,
+        "target": 21,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 23,
+        "target": 24,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 23,
+        "target": 27,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 23,
+        "target": 28,
+        "kind": "neighbor",
+        "strength": 0.4
+      }
+    ],
+    "id": 23,
+    "interests": [
+      "health",
+      "gaming"
+    ]
+  },
+  {
+    "name": "Rachel Wright",
+    "gender": "Female",
+    "age": 28,
+    "occupation": "Administrative Assistant",
+    "bio": "Rachel Wright, 28, is an administrative assistant in Maryland who follows lifestyle blogs.",
+    "personality": "supportive and cheerful",
+    "connections": [
+      {
+        "source": 24,
+        "target": 21,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 24,
+        "target": 22,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 24,
+        "target": 23,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 24,
+        "target": 29,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 24,
+        "target": 30,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 24,
+    "interests": [
+      "health",
+      "technology"
+    ]
+  },
+  {
+    "name": "Ryan Lopez",
+    "gender": "Male",
+    "age": 39,
+    "occupation": "Delivery Driver",
+    "bio": "Ryan Lopez, 39, is a delivery driver in Oklahoma who keeps up with sports talk radio.",
+    "personality": "dependable and talkative",
+    "connections": [
+      {
+        "source": 25,
+        "target": 21,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 25,
+        "target": 26,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 25,
+        "target": 27,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 25,
+        "target": 28,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 25,
+    "interests": [
+      "gaming",
+      "food"
+    ]
+  },
+  {
+    "name": "Kayla Hill",
+    "gender": "Female",
+    "age": 26,
+    "occupation": "Bartender",
+    "bio": "Kayla Hill, 26, tends bar in Louisiana and has a lively, outgoing personality.",
+    "personality": "bubbly and extroverted",
+    "connections": [
+      {
+        "source": 26,
+        "target": 22,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 26,
+        "target": 25,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 26,
+        "target": 28,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 26,
+        "target": 21,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 26,
+        "target": 30,
+        "kind": "friend",
+        "strength": 0.6
+      }
+    ],
+    "id": 26,
+    "interests": [
+      "gaming",
+      "finance"
+    ]
+  },
+  {
+    "name": "Justin Scott",
+    "gender": "Male",
+    "age": 34,
+    "occupation": "Real Estate Agent",
+    "bio": "Justin Scott, 34, is a real estate agent in North Carolina who networks extensively.",
+    "personality": "persuasive and confident",
+    "connections": [
+      {
+        "source": 27,
+        "target": 22,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 27,
+        "target": 23,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 27,
+        "target": 25,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 27,
+        "target": 28,
+        "kind": "sibling",
+        "strength": 0.8
+      },
+      {
+        "source": 27,
+        "target": 30,
+        "kind": "neighbor",
+        "strength": 0.4
+      }
+    ],
+    "id": 27,
+    "interests": [
+      "travel",
+      "sports"
+    ]
+  },
+  {
+    "name": "Alexis Green",
+    "gender": "Female",
+    "age": 23,
+    "occupation": "College Student",
+    "bio": "Alexis Green, 23, is a college student in Wisconsin studying environmental science.",
+    "personality": "eco-conscious and studious",
+    "connections": [
+      {
+        "source": 28,
+        "target": 23,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 28,
+        "target": 25,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 28,
+        "target": 26,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 28,
+        "target": 27,
+        "kind": "sibling",
+        "strength": 0.8
+      }
+    ],
+    "id": 28,
+    "interests": [
+      "technology",
+      "food"
+    ]
+  },
+  {
+    "name": "Kevin Adams",
+    "gender": "Male",
+    "age": 44,
+    "occupation": "Engineer",
+    "bio": "Kevin Adams, 44, is an engineer in Minnesota focused on efficiency and innovation.",
+    "personality": "methodical and pragmatic",
+    "connections": [
+      {
+        "source": 29,
+        "target": 24,
+        "kind": "neighbor",
+        "strength": 0.4
+      },
+      {
+        "source": 29,
+        "target": 30,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 29,
+        "target": 21,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 29,
+        "target": 22,
+        "kind": "coworker",
+        "strength": 0.5
+      }
+    ],
+    "id": 29,
+    "interests": [
+      "health",
+      "travel"
+    ]
+  },
+  {
+    "name": "Madison Baker",
+    "gender": "Female",
+    "age": 30,
+    "occupation": "Receptionist",
+    "bio": "Madison Baker, 30, works as a receptionist in South Carolina and enjoys local theater.",
+    "personality": "welcoming and diligent",
+    "connections": [
+      {
+        "source": 30,
+        "target": 29,
+        "kind": "spouse",
+        "strength": 0.9
+      },
+      {
+        "source": 30,
+        "target": 26,
+        "kind": "friend",
+        "strength": 0.6
+      },
+      {
+        "source": 30,
+        "target": 24,
+        "kind": "coworker",
+        "strength": 0.5
+      },
+      {
+        "source": 30,
+        "target": 27,
+        "kind": "neighbor",
+        "strength": 0.4
+      }
+    ],
+    "id": 30,
+    "interests": [
+      "sports",
+      "technology"
+    ]
+  }
+]

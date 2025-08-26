@@ -19,11 +19,11 @@ if TYPE_CHECKING:
     from .bdsc_2025_track_two.workflows import (
         init_simulation_context_bdsc_2025_track_two,
         send_and_gather_survey_results_bdsc_2025_track_two)
-    from .donothing import do_nothing
+    from .common.workflow import do_nothing
 
 
 def _import_do_nothing() -> Type[FunctionType]:
-    from .donothing import do_nothing
+    from .common.workflow import do_nothing
 
     return do_nothing
 
@@ -40,25 +40,6 @@ def _import_send_and_gather_survey_results_bdsc_2025_track_two() -> Type[Functio
         send_and_gather_survey_results_bdsc_2025_track_two
 
     return send_and_gather_survey_results_bdsc_2025_track_two
-
-
-def _import_insert_citizen_information_bdsc_2025_track_one() -> Type[FunctionType]:
-    from .bdsc_2025_track_one.workflow import insert_citizen_information
-
-    return insert_citizen_information
-
-
-def _import_gather_carbon_emission_results_bdsc_2025_track_one() -> Type[FunctionType]:
-    from .bdsc_2025_track_one.workflow import gather_carbon_emission_results
-
-    return gather_carbon_emission_results
-
-
-def _import_gather_promotion_results_bdsc_2025_track_one() -> Type[FunctionType]:
-    from .bdsc_2025_track_one.workflow import gather_promotion_results
-
-    return gather_promotion_results
-
 
 def _import_gather_communication_history_bdsc_2025_track_one() -> Type[FunctionType]:
     from .bdsc_2025_track_one.workflow import gather_communication_history
@@ -79,9 +60,39 @@ def _import_start_emission_log_bdsc_2025_track_one() -> Type[FunctionType]:
 
 
 def _import_send_carbon_awareness_survey_bdsc_2025_track_one() -> Type[FunctionType]:
-    from .bdsc_2025_track_one.workflow import send_canbon_awareness_survey
+    from .bdsc_2025_track_one.workflow import send_carbon_awareness_survey
 
-    return send_canbon_awareness_survey
+    return send_carbon_awareness_survey
+
+
+def _import_marketing_setup_agents() -> Type[FunctionType]:
+    from .marketing.workflow import setup_agents
+
+    return setup_agents
+
+
+def _import_marketing_send_advertisement() -> Type[FunctionType]:
+    from .marketing.workflow import send_advertisement
+
+    return send_advertisement
+
+
+def _import_marketing_send_rumor() -> Type[FunctionType]:
+    from .marketing.workflow import send_rumor
+
+    return send_rumor
+
+
+def _import_marketing_send_rebuttal() -> Type[FunctionType]:
+    from .marketing.workflow import send_rebuttal
+
+    return send_rebuttal
+
+
+def _import_marketing_report_sentiment() -> Type[FunctionType]:
+    from .marketing.workflow import report_sentiment
+
+    return report_sentiment
 
 
 def __getattr__(name: str) -> Type[FunctionType]:
@@ -105,6 +116,16 @@ def __getattr__(name: str) -> Type[FunctionType]:
         return _import_init_simulation_context_bdsc_2025_track_two()
     if name == "send_and_gather_survey_results_bdsc_2025_track_two":
         return _import_send_and_gather_survey_results_bdsc_2025_track_two()
+    if name == "marketing_setup_agents":
+        return _import_marketing_setup_agents()
+    if name == "marketing_send_advertisement":
+        return _import_marketing_send_advertisement()
+    if name == "marketing_send_rumor":
+        return _import_marketing_send_rumor()
+    if name == "marketing_send_rebuttal":
+        return _import_marketing_send_rebuttal()
+    if name == "marketing_report_sentiment":
+        return _import_marketing_report_sentiment()
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
 
@@ -116,7 +137,12 @@ __all__ = [
     "gather_communication_history_bdsc_2025_track_one",
     "delete_ambassador_bdsc_2025_track_one",
     "start_emission_log_bdsc_2025_track_one",
-    "send_canbon_awareness_survey_bdsc_2025_track_one",
+    "send_carbon_awareness_survey_bdsc_2025_track_one",
+    "marketing_setup_agents",
+    "marketing_send_advertisement",
+    "marketing_send_rumor",
+    "marketing_send_rebuttal",
+    "marketing_report_sentiment",
     "init_simulation_context_bdsc_2025_track_two",
     "send_and_gather_survey_results_bdsc_2025_track_two",
 ]
@@ -136,5 +162,10 @@ def get_type_to_cls_dict() -> Dict[str, Callable[[], Type[FunctionType]]]:
         "gather_communication_history_bdsc_2025_track_one": _import_gather_communication_history_bdsc_2025_track_one,
         "delete_ambassador_bdsc_2025_track_one": _import_delete_ambassador_bdsc_2025_track_one,
         "start_emission_log_bdsc_2025_track_one": _import_start_emission_log_bdsc_2025_track_one,
-        "send_canbon_awareness_survey_bdsc_2025_track_one": _import_send_carbon_awareness_survey_bdsc_2025_track_one,
+        "send_carbon_awareness_survey_bdsc_2025_track_one": _import_send_carbon_awareness_survey_bdsc_2025_track_one,
+        "marketing_setup_agents": _import_marketing_setup_agents,
+        "marketing_send_advertisement": _import_marketing_send_advertisement,
+        "marketing_send_rumor": _import_marketing_send_rumor,
+        "marketing_send_rebuttal": _import_marketing_send_rebuttal,
+        "marketing_report_sentiment": _import_marketing_report_sentiment,
     }

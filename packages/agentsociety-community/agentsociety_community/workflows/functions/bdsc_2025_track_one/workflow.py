@@ -146,7 +146,7 @@ async def start_emission_log(simulation: AgentSociety):
         await simulation.update([citizen_id], "logging_flag", True)
 
 
-async def send_canbon_awareness_survey(simulation: AgentSociety):
+async def send_carbon_awareness_survey(simulation: AgentSociety):
     citizen_ids = await simulation.filter(types=(TrackOneEnvCitizen,))
     survey_responses_dict = await simulation.send_survey(create_low_carbon_awareness_survey(), citizen_ids)
     survey_responses: list[Any] = []
@@ -201,7 +201,7 @@ TRACK_ONE_EXPERIMENT=ExpConfig(
         ),
         WorkflowStepConfig(
             type=WorkflowType.FUNCTION,
-            func=send_canbon_awareness_survey,
+            func=send_carbon_awareness_survey,
             description="Send the carbon awareness survey.",
         ),
         WorkflowStepConfig(
