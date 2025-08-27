@@ -15,6 +15,7 @@ interface MonacoPromptEditorProps {
     }>;
   }>;
   editorId?: string;
+  placeholder?: string;
 }
 
 const MonacoPromptEditor: React.FC<MonacoPromptEditorProps> = ({
@@ -22,7 +23,8 @@ const MonacoPromptEditor: React.FC<MonacoPromptEditorProps> = ({
   onChange,
   height = '200px',
   suggestions = [],
-  editorId = 'default'
+  editorId = 'default',
+  placeholder = ''
 }) => {
   // Use useRef to ensure provider is registered only once
   const providerRef = useRef<any>(null);
@@ -263,7 +265,8 @@ const MonacoPromptEditor: React.FC<MonacoPromptEditorProps> = ({
         acceptSuggestionOnEnter: 'on',
         tabCompletion: 'on',
         links: true,
-        formatOnType: true
+        formatOnType: true,
+        placeholder
       }}
     />
   );
