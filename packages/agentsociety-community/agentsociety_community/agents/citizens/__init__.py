@@ -111,7 +111,7 @@ def get_type_to_cls_dict() -> Dict[str, Callable[[], Type[CitizenAgentBase]]]:
         "TrackOneEnvAmbassador": _import_track_one_env_ambassador,
         "TrackTwoEnvCitizen": _import_track_two_env_citizen,
         "RumorSpreader": _import_rumor_spreader,
-         "AgreeAgent": _import_agree_agent,
+        "AgreeAgent": _import_agree_agent,
         "DisagreeAgent": _import_disagree_agent,
         "SocietyAgent": _import_society_agent,
         "MarketingAgent": _import_marketing_agent,
