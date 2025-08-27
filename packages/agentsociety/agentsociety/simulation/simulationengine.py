@@ -14,6 +14,7 @@ from multiprocessing import cpu_count
 from typing import Any, Callable, Literal, Optional, Union, cast
 
 import yaml
+import random
 from fastembed import SparseTextEmbedding
 
 from ..agent import (
@@ -1786,6 +1787,12 @@ class SimulationEngine:
                     await self.send_intervention_message(
                         step.intervene_message, target_agent_ids
                     )
+                elif step.type == WorkflowType.MARKETING_MESSAGE:
+                    assert step.intervene_message is not None
+                    reach = step.reach_prob if step.reach_prob is not None else 1.0
+                    all_ids = await self.filter()
+                    chosen = [cid for cid in all_ids if random.random() <= reach]
+                    await self.send_intervention_message(step.intervene_message, chosen)
                 elif step.type == WorkflowType.NEXT_ROUND:
                     await self.next_round()
                 elif step.type == WorkflowType.DELETE_AGENT:

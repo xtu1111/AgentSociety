@@ -19,16 +19,6 @@ from agentsociety.cityagent.blocks.utils import clean_json_response
 from agentsociety.memory import Memory
 from agentsociety.message import Message
 
-# relationship weight by type
-RELATION_WEIGHTS = {
-    "spouse": 1.0,
-    "sibling": 0.9,
-    "cousin": 0.8,
-    "friend": 0.6,
-    "coworker": 0.5,
-    "neighbor": 0.4,
-}
-
 RNG = np.random.default_rng(42)
 
 # profile mapping populated by workflow setup function
@@ -177,14 +167,12 @@ class MarketingAgent(CitizenAgentBase):
         for fid in friends:
             if exclude is not None and fid == exclude:
                 continue
-            kind = "friend"
             strength = 0.5
             for conn in profile.get("connections", []):
                 if conn["target"] == fid:
-                    kind = conn.get("kind", "friend")
                     strength = float(conn.get("strength", 0.5))
                     break
-            weight = RELATION_WEIGHTS.get(kind, 0.5) * strength
+            weight = strength
             if suggested and ID_TO_PROFILE.get(fid, {}).get("name") in suggested:
                 weight *= 2.0
             scores.append((weight, fid))

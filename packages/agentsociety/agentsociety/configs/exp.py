@@ -39,6 +39,7 @@ class WorkflowType(str, Enum):
         - `SAVE_CONTEXT`: Save the context of the specified agents.
         - `INTERVENE`: Represents other intervention methods driven by code.
         - `FUNCTION`: Represents function-based intervention methods.
+        - `MARKETING_MESSAGE`: Sends a marketing message to agents with a reach probability.
     """
     # main
     STEP = "step"
@@ -49,6 +50,7 @@ class WorkflowType(str, Enum):
     SURVEY = "survey"
     UPDATE_STATE_INTERVENE = "update_state"
     MESSAGE_INTERVENE = "message"
+    MARKETING_MESSAGE = "marketing_message"
     DELETE_AGENT = "delete_agent"
 
     # environment interaction
@@ -120,6 +122,9 @@ class WorkflowStepConfig(BaseModel):
     intervene_message: Optional[str] = None
     """Optional message used for interventions - used for [MESSAGE_INTERVENE] type"""
 
+      reach_prob: Optional[float] = None
+    """Probability that each agent receives the marketing message - used for [MARKETING_MESSAGE] type"""
+
     description: Optional[str] = None
     """A descriptive text explaining the workflow step"""
 
@@ -162,6 +167,11 @@ class WorkflowStepConfig(BaseModel):
             if self.intervene_message is None or self.target_agent is None:
                 raise ValueError(
                     "intervene_message and target_agent are required for MESSAGE_INTERVENE step"
+                )
+        elif self.type == WorkflowType.MARKETING_MESSAGE:
+            if self.intervene_message is None or self.reach_prob is None:
+                raise ValueError(
+                    "intervene_message and reach_prob are required for MARKETING_MESSAGE step"
                 )
         elif self.type == WorkflowType.NEXT_ROUND:
             if self.target_agent is not None:

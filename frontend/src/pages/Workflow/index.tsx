@@ -697,6 +697,17 @@ const WorkflowList: React.FC = () => {
                                                                     )
                                                                 },
                                                                 {
+                                                                    value: WorkflowType.MARKETING_MESSAGE,
+                                                                    label: (
+                                                                        <Space size={4}>
+                                                                            {t('workflow.marketing_message')}
+                                                                            <Tooltip title={t('workflow.marketing_messageTooltip')}>
+                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                                                                            </Tooltip>
+                                                                        </Space>
+                                                                    )
+                                                                },
+                                                                {
                                                                     value: WorkflowType.SURVEY,
                                                                     label: (
                                                                         <Space size={4}>
@@ -1032,6 +1043,34 @@ const WorkflowList: React.FC = () => {
                                                                                 <Input.TextArea rows={1} style={{ height: '32px' }} />
                                                                             </Form.Item>
                                                                         </Col>
+                                                                    )}
+                                                                    {stepType === WorkflowType.MARKETING_MESSAGE && (
+                                                                        <>
+                                                                            <Col span={12}>
+                                                                                <Form.Item
+                                                                                    {...restField}
+                                                                                    name={[name, 'intervene_message']}
+                                                                                    label={t('workflow.marketing_message')}
+                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterMarketingMessage') }]}
+                                                                                    tooltip={t('workflow.marketing_messageTooltip')}
+                                                                                    style={{ marginBottom: 8 }}
+                                                                                >
+                                                                                    <Input.TextArea rows={1} style={{ height: '32px' }} />
+                                                                                </Form.Item>
+                                                                            </Col>
+                                                                            <Col span={6}>
+                                                                                <Form.Item
+                                                                                    {...restField}
+                                                                                    name={[name, 'reach_prob']}
+                                                                                    label={t('workflow.reachProbability')}
+                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
+                                                                                    tooltip={t('workflow.reachProbability')}
+                                                                                    style={{ marginBottom: 8 }}
+                                                                                >
+                                                                                    <Input type="number" min={0} max={1} step={0.01} />
+                                                                                </Form.Item>
+                                                                            </Col>
+                                                                        </>
                                                                     )}
                                                                     {stepType === WorkflowType.SAVE_CONTEXT && (
                                                                         <>

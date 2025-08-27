@@ -19,6 +19,7 @@ export enum WorkflowType {
   ENVIRONMENT_INTERVENE = "environment",
   UPDATE_STATE_INTERVENE = "update_state",
   MESSAGE_INTERVENE = "message",
+  MARKETING_MESSAGE = "marketing_message",
   NEXT_ROUND = "next_round",
   SAVE_CONTEXT = "save_context",
   // INTERVENE = "other",

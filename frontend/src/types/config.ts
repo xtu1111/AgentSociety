@@ -90,6 +90,7 @@ export interface WorkflowStepConfig {
   save_as?: string;
   value?: any;
   intervene_message?: string;
+  reach_prob?: number;
   description?: string;
 }
 
