@@ -181,57 +181,26 @@ const WorkflowList: React.FC = () => {
 
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
-            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(step.type)) {
-                if (step.target_agent && typeof step.target_agent === 'object') {
-                    // 如果是AgentFilterConfig对象
-                    if (step.target_agent.filter_str) {
-                        // 表达式模式
+            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
+                    const agentFilter = step.target_agent as any;
+                    if (agentFilter.filter_str) {
                         handleTargetAgentModeChange(index, 'expression');
-                        return {
-                            ...step,
-                            target_agent: step.target_agent.filter_str
-                        };
-                    } else if (step.target_agent.agent_class) {
-                        // 列表模式，使用agent_class
-                        handleTargetAgentModeChange(index, 'expression');
-                        // 加载agent classes
-                        if (Array.isArray(step.target_agent.agent_class)) {
-                            step.target_agent.agent_class.forEach((agentClass: string) => {
-                                if (agentClass.includes('citizen')) {
-                                    fetchAgentClasses();
-                                } else if (agentClass.includes('supervisor')) {
-                                    fetchAgentClasses();
-                                }
-                            });
+                        const updated: any = { ...step, target_agent: agentFilter.filter_str };
+                        if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                            fetchAgentClasses();
+                            updated.agent_class = agentFilter.agent_class;
                         }
-                        return {
-                            ...step,
-                            agent_class: step.target_agent.agent_class
-                        };
-                    } else if (step.target_agent.filter_str && step.target_agent.agent_class) {
-                        // 过滤模式，同时使用filter_str和agent_class
+                        return updated;
+                    }
+                    if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
                         handleTargetAgentModeChange(index, 'expression');
-                        // 加载agent classes
-                        if (Array.isArray(step.target_agent.agent_class)) {
-                            step.target_agent.agent_class.forEach((agentClass: string) => {
-                                if (agentClass.includes('citizen')) {
-                                    fetchAgentClasses();
-                                } else if (agentClass.includes('supervisor')) {
-                                    fetchAgentClasses();
-                                }
-                            });
-                        }
-                        return {
-                            ...step,
-                            target_agent: step.target_agent.filter_str,
-                            agent_class: step.target_agent.agent_class
-                        };
+                        fetchAgentClasses();
+                        return { ...step, agent_class: agentFilter.agent_class };
                     }
                 } else if (Array.isArray(step.target_agent)) {
-                    // 原有的数组格式
                     handleTargetAgentModeChange(index, 'list');
                 } else if (typeof step.target_agent === 'string') {
-                    // 字符串格式，可能是表达式
                     handleTargetAgentModeChange(index, 'expression');
                 }
             }
@@ -252,57 +221,26 @@ const WorkflowList: React.FC = () => {
 
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
-            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(step.type)) {
-                if (step.target_agent && typeof step.target_agent === 'object') {
-                    // 如果是AgentFilterConfig对象
-                    if (step.target_agent.filter_str) {
-                        // 表达式模式
+            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
+                    const agentFilter = step.target_agent as any;
+                    if (agentFilter.filter_str) {
                         handleTargetAgentModeChange(index, 'expression');
-                        return {
-                            ...step,
-                            target_agent: step.target_agent.filter_str
-                        };
-                    } else if (step.target_agent.agent_class) {
-                        // 列表模式，使用agent_class
-                        handleTargetAgentModeChange(index, 'expression');
-                        // 加载agent classes
-                        if (Array.isArray(step.target_agent.agent_class)) {
-                            step.target_agent.agent_class.forEach((agentClass: string) => {
-                                if (agentClass.includes('citizen')) {
-                                    fetchAgentClasses();
-                                } else if (agentClass.includes('supervisor')) {
-                                    fetchAgentClasses();
-                                }
-                            });
+                        const updated: any = { ...step, target_agent: agentFilter.filter_str };
+                        if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                            fetchAgentClasses();
+                            updated.agent_class = agentFilter.agent_class;
                         }
-                        return {
-                            ...step,
-                            agent_class: step.target_agent.agent_class
-                        };
-                    } else if (step.target_agent.filter_str && step.target_agent.agent_class) {
-                        // 过滤模式，同时使用filter_str和agent_class
+                        return updated;
+                    }
+                    if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
                         handleTargetAgentModeChange(index, 'expression');
-                        // 加载agent classes
-                        if (Array.isArray(step.target_agent.agent_class)) {
-                            step.target_agent.agent_class.forEach((agentClass: string) => {
-                                if (agentClass.includes('citizen')) {
-                                    fetchAgentClasses();
-                                } else if (agentClass.includes('supervisor')) {
-                                    fetchAgentClasses();
-                                }
-                            });
-                        }
-                        return {
-                            ...step,
-                            target_agent: step.target_agent.filter_str,
-                            agent_class: step.target_agent.agent_class
-                        };
+                        fetchAgentClasses();
+                        return { ...step, agent_class: agentFilter.agent_class };
                     }
                 } else if (Array.isArray(step.target_agent)) {
-                    // 原有的数组格式
                     handleTargetAgentModeChange(index, 'list');
                 } else if (typeof step.target_agent === 'string') {
-                    // 字符串格式，可能是表达式
                     handleTargetAgentModeChange(index, 'expression');
                 }
             }
@@ -356,45 +294,27 @@ const WorkflowList: React.FC = () => {
             // 处理 target_agent 字段
             if (formValues.config) {
                 formValues.config = formValues.config.map((step: any, idx: number) => {
-                    if (
-                        [
-                            WorkflowType.INTERVIEW,
-                            WorkflowType.SURVEY,
-                            WorkflowType.UPDATE_STATE_INTERVENE,
-                            WorkflowType.MESSAGE_INTERVENE,
-                            WorkflowType.SAVE_CONTEXT
-                        ].includes(step.type)
-                    ) {
+                    if ([
+                        WorkflowType.INTERVIEW,
+                        WorkflowType.SURVEY,
+                        WorkflowType.UPDATE_STATE_INTERVENE,
+                        WorkflowType.MESSAGE_INTERVENE,
+                        WorkflowType.SAVE_CONTEXT,
+                        WorkflowType.MARKETING_MESSAGE
+                    ].includes(step.type)) {
                         if (targetAgentModes[idx] === 'expression' && typeof step.target_agent === 'string' && step.target_agent.trim()) {
-                            // 表达式模式：使用filter_str
-                            step.target_agent = {
-                                filter_str: step.target_agent
-                            };
-                        } else if (targetAgentModes[idx] === 'expression' && step.agent_class && step.agent_class.length > 0) {
-                            // 过滤模式：使用agent_class
-                            step.target_agent = {
-                                agent_class: step.agent_class
-                            };
-                            // 删除临时的agent_class字段
-                            delete step.agent_class;
-                        } else if (targetAgentModes[idx] === 'expression' && step.target_agent && step.agent_class && step.agent_class.length > 0) {
-                            // 过滤模式：同时使用filter_str和agent_class
-                            step.target_agent = {
-                                filter_str: step.target_agent,
-                                agent_class: step.agent_class
-                            };
-                            // 删除临时的agent_class字段
-                            delete step.agent_class;
+                            step.target_agent = { filter_str: step.target_agent };
                         } else if (targetAgentModes[idx] === 'list') {
-                            // 列表模式：使用agent_class
-                            if (step.agent_class && step.agent_class.length > 0) {
-                                step.target_agent = {
-                                    agent_class: step.agent_class
-                                };
-                                // 删除临时的agent_class字段
-                                delete step.agent_class;
+                            if (step.agent_class && step.agent_class.length > 0 && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                                step.target_agent = { agent_class: step.agent_class };
+                            delete step.agent_class;
                             }
-                            // 如果没有选择agent_class，保持原有的target_agent数组格式
+                        } else if (targetAgentModes[idx] === 'expression' && step.agent_class && step.agent_class.length > 0 && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                            step.target_agent = { filter_str: step.target_agent, agent_class: step.agent_class };
+                            delete step.agent_class;
+                        }
+                        if (step.type === WorkflowType.MARKETING_MESSAGE && step.agent_class) {
+                            delete step.agent_class;
                         }
                     }
                     return step;
@@ -450,7 +370,7 @@ const WorkflowList: React.FC = () => {
         if (changedValues.config) {
             const config = allValues.config;
             config.forEach((step, index) => {
-                if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(step.type)) {
+                if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
                     if (!targetAgentModes[index]) {
                         // 根据 target_agent 的值类型设置默认 mode
                         const targetAgent = step.target_agent;
@@ -907,10 +827,9 @@ const WorkflowList: React.FC = () => {
                                                                                 tooltip={t('workflow.targetAgentIdsTooltip')}
                                                                                 style={{ marginBottom: 8 }}
                                                                             >
-                                                                                <Input 
-                                                                                    placeholder="1,2,3" 
+                                                                                <Input
+                                                                                    placeholder="1,2,3"
                                                                                     onChange={(e) => {
-                                                                                        // 将逗号分隔的字符串转换为数组
                                                                                         const value = e.target.value.split(',').map(v => parseInt(v.trim()));
                                                                                         form.setFieldValue(['config', name, 'target_agent'], value);
                                                                                     }}
@@ -932,40 +851,43 @@ const WorkflowList: React.FC = () => {
                                                                                         suggestions={getTargetAgentSuggestions()}
                                                                                         editorId={`target-agent-${name}`}
                                                                                         key={`target-agent-${name}-${targetAgentModes[name]}`}
+                                                                                        placeholder={t('workflow.targetAgentExpressionPlaceholder')}
                                                                                     />
                                                                                 </Form.Item>
                                                                             </Col>
-                                                                            <Col span={12}>
-                                                                                <Form.Item
-                                                                                    {...restField}
-                                                                                    name={[name, 'agent_class']}
-                                                                                    label={t('workflow.agentClass')}
-                                                                                    tooltip={t('workflow.agentClassTooltip')}
-                                                                                    style={{ marginBottom: 8 }}
-                                                                                >
-                                                                                    <Select
-                                                                                        mode="multiple"
-                                                                                        placeholder={t('workflow.selectAgentClass')}
-                                                                                        loading={loadingAgentClasses['citizen'] || loadingAgentClasses['supervisor']}
-                                                                                        options={[
-                                                                                            {
-                                                                                                label: t('workflow.agentClassGroups.citizen'),
-                                                                                                options: (agentClasses['citizen'] || []).map(item => ({
-                                                                                                    ...item,
-                                                                                                    label: item.label
-                                                                                                }))
-                                                                                            },
-                                                                                            {
-                                                                                                label: t('workflow.agentClassGroups.supervisor'),
-                                                                                                options: (agentClasses['supervisor'] || []).map(item => ({
-                                                                                                    ...item,
-                                                                                                    label: item.label
-                                                                                                }))
-                                                                                            }
-                                                                                        ]}
-                                                                                    />
-                                                                                </Form.Item>
-                                                                            </Col>
+                                                                            {stepType !== WorkflowType.MARKETING_MESSAGE && (
+                                                                                <Col span={12}>
+                                                                                    <Form.Item
+                                                                                        {...restField}
+                                                                                        name={[name, 'agent_class']}
+                                                                                        label={t('workflow.agentClass')}
+                                                                                        tooltip={t('workflow.agentClassTooltip')}
+                                                                                        style={{ marginBottom: 8 }}
+                                                                                    >
+                                                                                        <Select
+                                                                                            mode="multiple"
+                                                                                            placeholder={t('workflow.selectAgentClass')}
+                                                                                            loading={loadingAgentClasses['citizen'] || loadingAgentClasses['supervisor']}
+                                                                                            options={[
+                                                                                                {
+                                                                                                    label: t('workflow.agentClassGroups.citizen'),
+                                                                                                    options: (agentClasses['citizen'] || []).map(item => ({
+                                                                                                        ...item,
+                                                                                                        label: item.label
+                                                                                                    }))
+                                                                                                },
+                                                                                                {
+                                                                                                    label: t('workflow.agentClassGroups.supervisor'),
+                                                                                                    options: (agentClasses['supervisor'] || []).map(item => ({
+                                                                                                        ...item,
+                                                                                                        label: item.label
+                                                                                                    }))
+                                                                                                }
+                                                                                            ]}
+                                                                                        />
+                                                                                    </Form.Item>
+                                                                                </Col>
+                                                                            )}
                                                                         </>
                                                                     )}
                                                                     {stepType === WorkflowType.INTERVIEW && (
