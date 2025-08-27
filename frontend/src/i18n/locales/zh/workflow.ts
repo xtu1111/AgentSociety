@@ -34,6 +34,7 @@ export default {
     targetAgentIdsTooltip: "直接指定智能体ID列表，用逗号分隔，如：1,2,3,4,5",
     targetAgentExpression: "智能体筛选表达式",
     targetAgentExpressionTooltip: "使用筛选表达式选择智能体，支持${profile.属性名}语法，如：${profile.age} > 30",
+    targetAgentExpressionPlaceholder: "例如: profile.age > 25 and 'fitness' in profile.interests",
     targetAgentAgentClass: "智能体类型",
     targetAgentAgentClassTooltip: "选择智能体类型来过滤智能体",
     selectAgentClass: "选择智能体类",
