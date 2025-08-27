@@ -122,7 +122,7 @@ class WorkflowStepConfig(BaseModel):
     intervene_message: Optional[str] = None
     """Optional message used for interventions - used for [MESSAGE_INTERVENE] type"""
 
-      reach_prob: Optional[float] = None
+    reach_prob: Optional[float] = None
     """Probability that each agent receives the marketing message - used for [MARKETING_MESSAGE] type"""
 
     description: Optional[str] = None
