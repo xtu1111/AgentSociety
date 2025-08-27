@@ -34,6 +34,7 @@ export default {
     targetAgentIdsTooltip: "Directly specify agent ID list, separated by commas, e.g.: 1,2,3,4,5",
     targetAgentExpression: "Target Agent Expression",
     targetAgentExpressionTooltip: "Use filtering expressions to select agents, supports ${profile.property} syntax, e.g.: ${profile.age} > 30",
+    targetAgentExpressionPlaceholder: "profile.age > 25 and 'fitness' in profile.interests",
     targetAgentAgentClass: "Agent Class",
     targetAgentAgentClassTooltip: "Select agent class to filter agents",
     selectAgentClass: "Select Agent Class",
