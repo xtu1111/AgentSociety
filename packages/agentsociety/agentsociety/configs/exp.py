@@ -151,6 +151,8 @@ class WorkflowStepConfig(BaseModel):
     """Probability that each agent receives the marketing message or mapping of expressions to probabilities"""
     repeat: int = 1
     """Number of times to repeat the marketing message"""
+    send_time: Optional[str] = None
+    """Time of day to send the marketing message (HH:MM)"""
     groups: Optional[List[MarketingGroupConfig]] = None
     """Optional list of marketing message groups"""
 
@@ -206,6 +208,13 @@ class WorkflowStepConfig(BaseModel):
                     raise ValueError(
                         "intervene_message and reach_prob are required for MARKETING_MESSAGE step",
                     )
+                if self.send_time is not None:
+                    try:
+                        hour, minute = map(int, self.send_time.split(":"))
+                        if hour < 0 or hour >= 24 or minute < 0 or minute >= 60:
+                            raise ValueError
+                    except Exception as e:
+                        raise ValueError("send_time must be in HH:MM format") from e
                 if isinstance(self.reach_prob, dict):
                     for expr, prob in self.reach_prob.items():
                         if not isinstance(expr, str) or not isinstance(prob, (int, float)):
