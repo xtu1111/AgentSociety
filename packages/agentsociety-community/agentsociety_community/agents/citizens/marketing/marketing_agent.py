@@ -177,13 +177,11 @@ class MarketingAgent(CitizenAgentBase):
             if exclude is not None and fid == exclude:
                 continue
             strength = 0.5
-            trust = 0.5
             for conn in profile.get("connections", []):
                 if conn["target"] == fid:
                     strength = float(conn.get("strength", 0.5))
-                    trust = float(conn.get("trust", 0.5))
                     break
-            weight = strength * trust
+            weight = strength
             if suggested and ID_TO_PROFILE.get(fid, {}).get("name") in suggested:
                 weight *= 2.0
             scores.append((weight, fid))
