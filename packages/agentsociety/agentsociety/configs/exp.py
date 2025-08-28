@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, Dict
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
@@ -122,8 +122,10 @@ class WorkflowStepConfig(BaseModel):
     intervene_message: Optional[str] = None
     """Optional message used for interventions - used for [MESSAGE_INTERVENE] type"""
 
-    reach_prob: Optional[float] = None
-    """Probability that each agent receives the marketing message - used for [MARKETING_MESSAGE] type"""
+    reach_prob: Optional[Union[float, Dict[str, float]]] = None
+    """Probability that each agent receives the marketing message or mapping of expressions to probabilities"""
+    repeat: int = 1
+    """Number of times to repeat the marketing message"""
 
     description: Optional[str] = None
     """A descriptive text explaining the workflow step"""
@@ -173,6 +175,17 @@ class WorkflowStepConfig(BaseModel):
                 raise ValueError(
                     "intervene_message and reach_prob are required for MARKETING_MESSAGE step"
                 )
+            if isinstance(self.reach_prob, dict):
+                for expr, prob in self.reach_prob.items():
+                    if not isinstance(expr, str) or not isinstance(prob, (int, float)):
+                        raise ValueError("reach_prob mapping must be {str: float}")
+                    if prob < 0 or prob > 1:
+                        raise ValueError("reach_prob values must be between 0 and 1")
+            else:
+                if not 0 <= self.reach_prob <= 1:
+                    raise ValueError("reach_prob must be between 0 and 1")
+            if self.repeat <= 0:
+                raise ValueError("repeat must be greater than 0")
         elif self.type == WorkflowType.NEXT_ROUND:
             if self.target_agent is not None:
                 raise ValueError("target_agent is not allowed for NEXT_ROUND step")
@@ -182,7 +195,7 @@ class WorkflowStepConfig(BaseModel):
         elif self.type == WorkflowType.INTERVENE:
             if self.func is None:
                 raise ValueError(
-                    "target_agent and intervene_message are required for INTERVENE step"
+                    "target_agent and intervene_message are required for INTERVENE step",
                 )
         elif self.type == WorkflowType.FUNCTION:
             if self.func is None:
