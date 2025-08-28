@@ -17,6 +17,11 @@ import yaml
 import random
 from fastembed import SparseTextEmbedding
 
+
+def _parse_hhmm(time_str: str) -> int:
+    hour, minute = map(int, time_str.split(":"))
+    return hour * 3600 + minute * 60
+
 from ..agent import (
     Agent,
     AgentToolbox,
@@ -1788,6 +1793,11 @@ class SimulationEngine:
                         step.intervene_message, target_agent_ids
                     )
                 elif step.type == WorkflowType.MARKETING_MESSAGE:
+                    if step.send_time is not None:
+                        target_tick = _parse_hhmm(step.send_time)
+                        current_tick = self.environment.get_tick()
+                        if current_tick < target_tick:
+                            await self.step(target_tick - current_tick)
                     if step.groups:
                         for group in step.groups:
                             targets = (
