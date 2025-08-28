@@ -6,44 +6,12 @@ import { WorkflowType } from '../../utils/enums';
 import { fetchCustom } from '../../components/fetch';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import MonacoPromptEditor from '../../components/MonacoPromptEditor';
 import { Survey } from '../../components/type';
-import { profiles } from '../AgentTemplate/profile';
-
 interface FormValues {
     name: string;
     description?: string;
     config: WorkflowStepConfig[];
 }
-
-const getTargetAgentSuggestions = () => {
-    const profileSuggestions = profiles.map((profile) => ({
-        label: profile.name,
-        detail: profile.description
-    }));
-    const operatorSuggestions = [
-        { label: '==', detail: 'Equal to' },
-        { label: '!=', detail: 'Not equal to' },
-        { label: '>', detail: 'Greater than' },
-        { label: '>=', detail: 'Greater than or equal to' },
-        { label: '<', detail: 'Less than' },
-        { label: '<=', detail: 'Less than or equal to' },
-        { label: 'and', detail: 'Logical AND' },
-        { label: 'or', detail: 'Logical OR' },
-        { label: 'not', detail: 'Logical NOT' },
-        { label: 'in', detail: 'Value in list' },
-        { label: 'not in', detail: 'Value not in list' },
-        { label: 'is', detail: 'Identity comparison' },
-        { label: 'is not', detail: 'Identity comparison (not)' }
-    ];
-    return [
-        {
-            label: 'profile',
-            children: profileSuggestions
-        },
-        ...operatorSuggestions
-    ];
-};
 
 const WorkflowList: React.FC = () => {
     const { t } = useTranslation();
@@ -606,7 +574,7 @@ const WorkflowList: React.FC = () => {
                                         <>
                                             {/* 基本配置行 */}
                                             <Row gutter={8} align="middle" style={{ marginBottom: 8 }}>
-                                                <Col span={4}>
+                                                <Col span={6}>
                                                     <Form.Item
                                                         {...restField}
                                                         name={[name, 'type']}
@@ -615,6 +583,7 @@ const WorkflowList: React.FC = () => {
                                                         style={{ marginBottom: 8 }}
                                                     >
                                                         <Select
+                                                            style={{ width: '100%' }}
                                                             placeholder={t('workflow.selectStepType')}
                                                             options={[
                                                                 {
@@ -902,13 +871,7 @@ const WorkflowList: React.FC = () => {
                                                                                     tooltip={t('workflow.targetAgentExpressionTooltip')}
                                                                                     style={{ marginBottom: 8 }}
                                                                                 >
-                                                                                    <MonacoPromptEditor
-                                                                                        height="40px"
-                                                                                        suggestions={getTargetAgentSuggestions()}
-                                                                                        editorId={`target-agent-${name}`}
-                                                                                        key={`target-agent-${name}-${targetAgentModes[name]}`}
-                                                                                        placeholder={t('workflow.targetAgentExpressionPlaceholder')}
-                                                                                    />
+                                                                                    <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
                                                                                 </Form.Item>
                                                                             </Col>
                                                                             {stepType !== WorkflowType.MARKETING_MESSAGE && (
@@ -945,6 +908,19 @@ const WorkflowList: React.FC = () => {
                                                                                 </Col>
                                                                             )}
                                                                         </>
+                                                                    )}
+                                                                    {stepType === WorkflowType.MARKETING_MESSAGE && (
+                                                                        <Col span={6}>
+                                                                            <Form.Item
+                                                                                {...restField}
+                                                                                name={[name, 'send_time']}
+                                                                                label={t('workflow.sendTime')}
+                                                                                tooltip={t('workflow.sendTimeTooltip')}
+                                                                                style={{ marginBottom: 8 }}
+                                                                            >
+                                                                                <Input placeholder={t('workflow.enterSendTime')} />
+                                                                            </Form.Item>
+                                                                        </Col>
                                                                     )}
                                                                     {stepType === WorkflowType.INTERVIEW && (
                                                                         <Col span={12}>
@@ -1117,8 +1093,10 @@ const WorkflowList: React.FC = () => {
                                                                                                 </Col>
                                                                                             </Row>
                                                                                         ))}
-                                                                                        <Form.Item>
-                                                                                            <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>{t('workflow.addReachGroup')}</Button>
+                                                                                        <Form.Item style={{ marginBottom: 8 }}>
+                                                                                            <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                                                                                                {t('workflow.addReachGroup')}
+                                                                                            </Button>
                                                                                         </Form.Item>
                                                                                     </>
                                                                                 )}
