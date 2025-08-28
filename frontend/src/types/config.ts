@@ -92,7 +92,15 @@ export interface WorkflowStepConfig {
   intervene_message?: string;
   reach_prob?: number | Record<string, number>;
   repeat?: number;
+  groups?: MarketingGroupConfig[];
   description?: string;
+}
+
+export interface MarketingGroupConfig {
+  target_agent?: number[] | string | AgentFilterConfig;
+  intervene_message: string;
+  reach_prob: number;
+  repeat?: number;
 }
 
 export interface MetricExtractorConfig {
