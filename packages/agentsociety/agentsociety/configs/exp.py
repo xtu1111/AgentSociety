@@ -17,6 +17,7 @@ __all__ = [
     "ExpConfig",
     "WorkflowType",
     "AgentFilterConfig",
+    "MarketingGroupConfig",
 ]
 
 
@@ -81,6 +82,30 @@ class AgentFilterConfig(BaseModel):
         return self
 
 
+
+
+class MarketingGroupConfig(BaseModel):
+    """Configuration for a marketing message target group."""
+
+    target_agent: Optional[Union[list[int], AgentFilterConfig]] = None
+    """Agents targeted by this marketing message group"""
+
+    intervene_message: str
+    """Marketing message content for this group"""
+
+    reach_prob: float
+    """Probability that each agent in this group receives the message"""
+
+    repeat: int = 1
+    """Number of times to repeat sending this message"""
+
+    @model_validator(mode="after")
+    def validate_prob(self):
+        if not 0 <= self.reach_prob <= 1:
+            raise ValueError("reach_prob must be between 0 and 1")
+        if self.repeat <= 0:
+            raise ValueError("repeat must be greater than 0")
+        return self
 class WorkflowStepConfig(BaseModel):
     """Represents a step in the workflow process."""
 
@@ -126,6 +151,8 @@ class WorkflowStepConfig(BaseModel):
     """Probability that each agent receives the marketing message or mapping of expressions to probabilities"""
     repeat: int = 1
     """Number of times to repeat the marketing message"""
+    groups: Optional[List[MarketingGroupConfig]] = None
+    """Optional list of marketing message groups"""
 
     description: Optional[str] = None
     """A descriptive text explaining the workflow step"""
@@ -171,21 +198,25 @@ class WorkflowStepConfig(BaseModel):
                     "intervene_message and target_agent are required for MESSAGE_INTERVENE step"
                 )
         elif self.type == WorkflowType.MARKETING_MESSAGE:
-            if self.intervene_message is None or self.reach_prob is None:
-                raise ValueError(
-                    "intervene_message and reach_prob are required for MARKETING_MESSAGE step"
-                )
-            if isinstance(self.reach_prob, dict):
-                for expr, prob in self.reach_prob.items():
-                    if not isinstance(expr, str) or not isinstance(prob, (int, float)):
-                        raise ValueError("reach_prob mapping must be {str: float}")
-                    if prob < 0 or prob > 1:
-                        raise ValueError("reach_prob values must be between 0 and 1")
+            if self.groups and len(self.groups) > 0:
+                for _ in self.groups:
+                    pass
             else:
-                if not 0 <= self.reach_prob <= 1:
-                    raise ValueError("reach_prob must be between 0 and 1")
-            if self.repeat <= 0:
-                raise ValueError("repeat must be greater than 0")
+                if self.intervene_message is None or self.reach_prob is None:
+                    raise ValueError(
+                        "intervene_message and reach_prob are required for MARKETING_MESSAGE step",
+                    )
+                if isinstance(self.reach_prob, dict):
+                    for expr, prob in self.reach_prob.items():
+                        if not isinstance(expr, str) or not isinstance(prob, (int, float)):
+                            raise ValueError("reach_prob mapping must be {str: float}")
+                        if prob < 0 or prob > 1:
+                            raise ValueError("reach_prob values must be between 0 and 1")
+                else:
+                    if not 0 <= self.reach_prob <= 1:
+                        raise ValueError("reach_prob must be between 0 and 1")
+                if self.repeat <= 0:
+                    raise ValueError("repeat must be greater than 0")
         elif self.type == WorkflowType.NEXT_ROUND:
             if self.target_agent is not None:
                 raise ValueError("target_agent is not allowed for NEXT_ROUND step")
