@@ -92,6 +92,7 @@ export interface WorkflowStepConfig {
   intervene_message?: string;
   reach_prob?: number | Record<string, number>;
   repeat?: number;
+  send_time?: string;
   groups?: MarketingGroupConfig[];
   description?: string;
 }
