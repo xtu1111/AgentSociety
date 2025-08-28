@@ -90,7 +90,8 @@ export interface WorkflowStepConfig {
   save_as?: string;
   value?: any;
   intervene_message?: string;
-  reach_prob?: number;
+  reach_prob?: number | Record<string, number>;
+  repeat?: number;
   description?: string;
 }
 
