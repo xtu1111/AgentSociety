@@ -1789,10 +1789,28 @@ class SimulationEngine:
                     )
                 elif step.type == WorkflowType.MARKETING_MESSAGE:
                     assert step.intervene_message is not None
-                    reach = step.reach_prob if step.reach_prob is not None else 1.0
-                    all_ids = await self.filter()
-                    chosen = [cid for cid in all_ids if random.random() <= reach]
-                    await self.send_intervention_message(step.intervene_message, chosen)
+                    targets = (
+                        await self._extract_target_agent_ids(step.target_agent)
+                        if step.target_agent is not None
+                        else await self.filter()
+                    )
+                    chosen: list[int] = []
+                    for _ in range(step.repeat):
+                        for cid in targets:
+                            profile = self._filter_base[cid][1]
+                            prob = 0.0
+                            if isinstance(step.reach_prob, dict):
+                                for expr, p in step.reach_prob.items():
+                                    if evaluate_filter(expr, profile):
+                                        prob = p
+                                        break
+                            else:
+                                prob = step.reach_prob
+                            if random.random() <= prob:
+                                chosen.append(cid)
+                        if chosen:
+                            await self.send_intervention_message(step.intervene_message, chosen)
+                            chosen = []
                 elif step.type == WorkflowType.NEXT_ROUND:
                     await self.next_round()
                 elif step.type == WorkflowType.DELETE_AGENT:
