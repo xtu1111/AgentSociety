@@ -15,15 +15,21 @@ async def report_sentiment(simulation: AgentSociety):
     sentiments = await simulation.gather("sentiment", ids, flatten=True, keep_id=True)
     emotions = await simulation.gather("emotion", ids, flatten=True, keep_id=True)
     adopted = await simulation.gather("adopted", ids, flatten=True, keep_id=True)
+    exposures = await simulation.gather("exposure_count", ids, flatten=True, keep_id=True)
+    shares = await simulation.gather("messages_shared", ids, flatten=True, keep_id=True)
     for cid in sorted(ids):
         name = marketing_agent.ID_TO_PROFILE.get(cid, {}).get("name", str(cid))
         val = sentiments.get(cid, 0.0)
         emo = emotions.get(cid, "Neutral")
         adopt_flag = bool(adopted.get(cid, False))
-        print(f"{name}: sentiment={val:.2f}, emotion={emo}, adopted={adopt_flag}")
+        exp = exposures.get(cid, 0)
+        sh = shares.get(cid, 0)
+        print(f"{name}: sentiment={val:.2f}, emotion={emo}, adopted={adopt_flag}, exposures={exp}, shares={sh}")
     if adopted:
         rate = sum(1 for v in adopted.values() if v) / len(adopted)
-        print(f"\nAdoption rate: {rate:.2%}")
+        total_exp = sum(exposures.values())
+        total_sh = sum(shares.values())
+        print(f"\nAdoption rate: {rate:.2%}, total exposures: {total_exp}, total shares: {total_sh}")
 
 
 MARKETING_WORKFLOW = ExpConfig(
