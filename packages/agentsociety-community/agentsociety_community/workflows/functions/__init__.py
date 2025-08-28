@@ -1,3 +1,14 @@
+"""
+Lazy import like langchain-community.
+
+How to add a new function:
+1. Add a new file in this directory to define your function.
+2. Add an `_import_xxx` helper in this module to import the function.
+3. Extend `__getattr__` to lazy import the function by name.
+4. Add the function to the `__all__` list.
+5. Add the function to the return value of `get_type_to_cls_dict`.
+"""
+
 from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Type
 
 from agentsociety.simulation import AgentSociety
