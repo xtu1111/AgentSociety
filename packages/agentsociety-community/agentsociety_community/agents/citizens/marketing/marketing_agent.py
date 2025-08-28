@@ -121,6 +121,8 @@ class MarketingAgent(CitizenAgentBase):
         MemoryAttribute(name="adopted", type=bool, default_or_value=False, description="has adopted product"),
         MemoryAttribute(name="attitude", type=str, default_or_value="neutral", description="attitude toward product"),
         MemoryAttribute(name="current_need", type=str, default_or_value="none", description="current need"),
+        MemoryAttribute(name="exposure_count", type=int, default_or_value=0, description="marketing exposures"),
+        MemoryAttribute(name="messages_shared", type=int, default_or_value=0, description="forwarded messages"),
     ]
 
     def __init__(self, id: int, name: str, toolbox: AgentToolbox, memory: Memory,
@@ -148,7 +150,14 @@ class MarketingAgent(CitizenAgentBase):
             attitude,
             need,
         ) = await _consult_llm(self, profile, sentiment, adopted, content, friend_names)
-        await self.memory.status.update("sentiment", new_sentiment)
+        exposure = await self.memory.status.get("exposure_count") or 0
+        exposure += 1
+        await self.memory.status.update("exposure_count", exposure)
+        # fatigue: dampen change as exposures accumulate
+        delta = new_sentiment - sentiment
+        fatigue = float(np.exp(-0.3 * (exposure - 1)))
+        effective_sentiment = sentiment + delta * fatigue
+        await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", emotion)
         await self.memory.status.update("thought", thought)
         await self.memory.status.update("adopted", new_adopted)
@@ -168,11 +177,13 @@ class MarketingAgent(CitizenAgentBase):
             if exclude is not None and fid == exclude:
                 continue
             strength = 0.5
+            trust = 0.5
             for conn in profile.get("connections", []):
                 if conn["target"] == fid:
                     strength = float(conn.get("strength", 0.5))
+                    trust = float(conn.get("trust", 0.5))
                     break
-            weight = strength
+            weight = strength * trust
             if suggested and ID_TO_PROFILE.get(fid, {}).get("name") in suggested:
                 weight *= 2.0
             scores.append((weight, fid))
@@ -184,6 +195,9 @@ class MarketingAgent(CitizenAgentBase):
         k = min(self.max_forwards, len(neighbors))
         chosen = list(RNG.choice(neighbors, size=k, replace=False, p=probs))
         serialized = json.dumps({"content": content}, ensure_ascii=False)
+        shared = await self.memory.status.get("messages_shared") or 0
+        shared += len(chosen)
+        await self.memory.status.update("messages_shared", shared)
         for fid in chosen:
             await self.send_message_to_agent(fid, serialized)
 
