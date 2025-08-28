@@ -56,6 +56,7 @@ const WorkflowList: React.FC = () => {
     const [surveyList, setSurveyList] = useState<Survey[]>([]);
     const [form] = Form.useForm<FormValues>();
     const [targetAgentModes, setTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
+    const [groupTargetAgentModes, setGroupTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
     const [agentClasses, setAgentClasses] = useState<{ [agentType: string]: { value: string; label: string }[] }>({});
     const [loadingAgentClasses, setLoadingAgentClasses] = useState<{ [agentType: string]: boolean }>({});
 
@@ -182,6 +183,23 @@ const WorkflowList: React.FC = () => {
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
             if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
+                    step.groups = step.groups.map((g: any, gIdx: number) => {
+                        if (g.target_agent && typeof g.target_agent === 'object' && !Array.isArray(g.target_agent)) {
+                            const agentFilter = g.target_agent as any;
+                            if (agentFilter.filter_str) {
+                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                                return { ...g, target_agent: agentFilter.filter_str };
+                            }
+                        } else if (Array.isArray(g.target_agent)) {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'list');
+                        } else if (typeof g.target_agent === 'string') {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                        return g;
+                    });
+                    return step;
+                }
                 if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
                     const agentFilter = step.target_agent as any;
                     if (agentFilter.filter_str) {
@@ -222,6 +240,23 @@ const WorkflowList: React.FC = () => {
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
             if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
+                    step.groups = step.groups.map((g: any, gIdx: number) => {
+                        if (g.target_agent && typeof g.target_agent === 'object' && !Array.isArray(g.target_agent)) {
+                            const agentFilter = g.target_agent as any;
+                            if (agentFilter.filter_str) {
+                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                                return { ...g, target_agent: agentFilter.filter_str };
+                            }
+                        } else if (Array.isArray(g.target_agent)) {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'list');
+                        } else if (typeof g.target_agent === 'string') {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                        return g;
+                    });
+                    return step;
+                }
                 if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
                     const agentFilter = step.target_agent as any;
                     if (agentFilter.filter_str) {
@@ -316,17 +351,18 @@ const WorkflowList: React.FC = () => {
                         if (step.type === WorkflowType.MARKETING_MESSAGE && step.agent_class) {
                             delete step.agent_class;
                         }
-                        if (step.type === WorkflowType.MARKETING_MESSAGE && step.reach_prob_groups) {
-                            const obj: Record<string, number> = {};
-                            step.reach_prob_groups.forEach((g: any) => {
-                                if (g.expression && typeof g.prob === 'number') {
-                                    obj[g.expression] = g.prob;
+                        if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
+                            step.groups = step.groups.map((g: any, gIdx: number) => {
+                                const mode = groupTargetAgentModes[`${idx}-${gIdx}`];
+                                if (mode === 'expression' && typeof g.target_agent === 'string' && g.target_agent.trim()) {
+                                    return { ...g, target_agent: { filter_str: g.target_agent } };
                                 }
+                                return g;
                             });
-                            if (Object.keys(obj).length > 0) {
-                                step.reach_prob = obj;
-                            }
-                            delete step.reach_prob_groups;
+                            delete step.target_agent;
+                            delete step.intervene_message;
+                            delete step.reach_prob;
+                            delete step.repeat;
                         }
                     }
                     return step;
@@ -374,6 +410,14 @@ const WorkflowList: React.FC = () => {
         setTargetAgentModes(prev => ({
             ...prev,
             [stepIndex]: mode
+        }));
+    };
+
+    const handleGroupTargetAgentModeChange = (stepIndex: number, groupIndex: number, mode: 'list' | 'expression') => {
+        const key = `${stepIndex}-${groupIndex}`;
+        setGroupTargetAgentModes(prev => ({
+            ...prev,
+            [key]: mode
         }));
     };
 
@@ -979,82 +1023,106 @@ const WorkflowList: React.FC = () => {
                                                                         </Col>
                                                                     )}
                                                                         {stepType === WorkflowType.MARKETING_MESSAGE && (
-                                                                            <>
-                                                                                <Col span={12}>
-                                                                                    <Form.Item
-                                                                                        {...restField}
-                                                                                        name={[name, 'intervene_message']}
-                                                                                        label={t('workflow.marketing_message')}
-                                                                                        rules={[{ required: true, message: t('workflow.pleaseEnterMarketingMessage') }]}
-                                                                                        tooltip={t('workflow.marketing_messageTooltip')}
-                                                                                        style={{ marginBottom: 8 }}
-                                                                                    >
-                                                                                        <Input.TextArea rows={1} style={{ height: '32px' }} />
-                                                                                    </Form.Item>
-                                                                                </Col>
-                                                                                <Col span={6}>
-                                                                                    <Form.Item
-                                                                                        {...restField}
-                                                                                        name={[name, 'reach_prob']}
-                                                                                        label={t('workflow.reachProbability')}
-                                                                                        rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
-                                                                                        tooltip={t('workflow.reachProbability')}
-                                                                                        style={{ marginBottom: 8 }}
-                                                                                    >
-                                                                                        <Input type="number" min={0} max={1} step={0.01} />
-                                                                                    </Form.Item>
-                                                                                </Col>
-                                                                                <Col span={6}>
-                                                                                    <Form.Item
-                                                                                        {...restField}
-                                                                                        name={[name, 'repeat']}
-                                                                                        label={t('workflow.repeat')}
-                                                                                        tooltip={t('workflow.repeat')}
-                                                                                        initialValue={1}
-                                                                                        style={{ marginBottom: 8 }}
-                                                                                    >
-                                                                                        <InputNumber min={1} />
-                                                                                    </Form.Item>
-                                                                                </Col>
-                                                                                <Col span={24}>
-                                                                                    <Form.List name={[name, 'reach_prob_groups']}>
-                                                                                        {(fields, { add, remove }) => (
-                                                                                            <>
-                                                                                                {fields.map(field => (
-                                                                                                    <Row key={field.key} gutter={8} align="middle">
-                                                                                                        <Col span={12}>
-                                                                                                            <Form.Item
-                                                                                                                {...field}
-                                                                                                                name={[field.name, 'expression']}
-                                                                                                                label={t('workflow.expression')}
-                                                                                                                style={{ marginBottom: 8 }}
-                                                                                                            >
-                                                                                                                <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
-                                                                                                            </Form.Item>
-                                                                                                        </Col>
-                                                                                                        <Col span={6}>
-                                                                                                            <Form.Item
-                                                                                                                {...field}
-                                                                                                                name={[field.name, 'prob']}
-                                                                                                                label={t('workflow.reachProbability')}
-                                                                                                                style={{ marginBottom: 8 }}
-                                                                                                            >
-                                                                                                                <Input type="number" min={0} max={1} step={0.01} />
-                                                                                                            </Form.Item>
-                                                                                                        </Col>
-                                                                                                        <Col span={2}>
-                                                                                                            <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />
-                                                                                                        </Col>
-                                                                                                    </Row>
-                                                                                                ))}
-                                                                                                <Form.Item>
-                                                                                                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>{t('workflow.addReachGroup')}</Button>
-                                                                                                </Form.Item>
-                                                                                            </>
-                                                                                        )}
-                                                                                    </Form.List>
-                                                                                </Col>
-                                                                            </>
+                                                                            <Form.List name={[name, 'groups']}>
+                                                                                {(fields, { add, remove }) => (
+                                                                                    <>
+                                                                                        {fields.map((field, gIdx) => (
+                                                                                            <Row key={field.key} gutter={8} align="middle">
+                                                                                                <Col span={12}>
+                                                                                                    <Form.Item
+                                                                                                        label={t('workflow.targetAgentMode')}
+                                                                                                        tooltip={t('workflow.targetAgentModeTooltip')}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <Select
+                                                                                                            value={groupTargetAgentModes[`${name}-${gIdx}`] || 'list'}
+                                                                                                            onChange={(value) => handleGroupTargetAgentModeChange(name, gIdx, value)}
+                                                                                                            options={[
+                                                                                                                { value: 'list', label: t('workflow.targetAgentModeList') },
+                                                                                                                { value: 'expression', label: t('workflow.targetAgentModeExpression') }
+                                                                                                            ]}
+                                                                                                        />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                {groupTargetAgentModes[`${name}-${gIdx}`] === 'list' ? (
+                                                                                                    <Col span={12}>
+                                                                                                        <Form.Item
+                                                                                                            {...field}
+                                                                                                            name={[field.name, 'target_agent']}
+                                                                                                            label={t('workflow.targetAgentIds')}
+                                                                                                            rules={[{ required: true, message: t('workflow.pleaseEnterTargetAgent') }]}
+                                                                                                            tooltip={t('workflow.targetAgentIdsTooltip')}
+                                                                                                            style={{ marginBottom: 8 }}
+                                                                                                        >
+                                                                                                            <Input
+                                                                                                                placeholder="1,2,3"
+                                                                                                                onChange={(e) => {
+                                                                                                                    const value = e.target.value.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
+                                                                                                                    form.setFieldValue(['config', name, 'groups', gIdx, 'target_agent'], value);
+                                                                                                                }}
+                                                                                                            />
+                                                                                                        </Form.Item>
+                                                                                                    </Col>
+                                                                                                ) : (
+                                                                                                    <Col span={12}>
+                                                                                                        <Form.Item
+                                                                                                            {...field}
+                                                                                                            name={[field.name, 'target_agent']}
+                                                                                                            label={t('workflow.targetAgentExpression')}
+                                                                                                            tooltip={t('workflow.targetAgentExpressionTooltip')}
+                                                                                                            style={{ marginBottom: 8 }}
+                                                                                                        >
+                                                                                                            <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
+                                                                                                        </Form.Item>
+                                                                                                    </Col>
+                                                                                                )}
+                                                                                                <Col span={12}>
+                                                                                                    <Form.Item
+                                                                                                        {...field}
+                                                                                                        name={[field.name, 'intervene_message']}
+                                                                                                        label={t('workflow.marketing_message')}
+                                                                                                        rules={[{ required: true, message: t('workflow.pleaseEnterMarketingMessage') }]}
+                                                                                                        tooltip={t('workflow.marketing_messageTooltip')}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <Input.TextArea rows={1} style={{ height: '32px' }} />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                <Col span={6}>
+                                                                                                    <Form.Item
+                                                                                                        {...field}
+                                                                                                        name={[field.name, 'reach_prob']}
+                                                                                                        label={t('workflow.reachProbability')}
+                                                                                                        rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
+                                                                                                        tooltip={t('workflow.reachProbability')}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <Input type="number" min={0} max={1} step={0.01} />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                <Col span={6}>
+                                                                                                    <Form.Item
+                                                                                                        {...field}
+                                                                                                        name={[field.name, 'repeat']}
+                                                                                                        label={t('workflow.repeat')}
+                                                                                                        tooltip={t('workflow.repeat')}
+                                                                                                        initialValue={1}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <InputNumber min={1} />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                <Col span={2}>
+                                                                                                    <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />
+                                                                                                </Col>
+                                                                                            </Row>
+                                                                                        ))}
+                                                                                        <Form.Item>
+                                                                                            <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>{t('workflow.addReachGroup')}</Button>
+                                                                                        </Form.Item>
+                                                                                    </>
+                                                                                )}
+                                                                            </Form.List>
                                                                         )}
                                                                     {stepType === WorkflowType.SAVE_CONTEXT && (
                                                                         <>
