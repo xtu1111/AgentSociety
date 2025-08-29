@@ -99,6 +99,9 @@ class MarketingGroupConfig(BaseModel):
     repeat: int = 1
     """Number of times to repeat sending this message"""
 
+    tags: Optional[List[str]] = None
+    """Optional list of tags describing the marketing message"""
+
     @model_validator(mode="after")
     def validate_prob(self):
         if not 0 <= self.reach_prob <= 1:
@@ -155,6 +158,8 @@ class WorkflowStepConfig(BaseModel):
     """Time of day to send the marketing message (HH:MM)"""
     groups: Optional[List[MarketingGroupConfig]] = None
     """Optional list of marketing message groups"""
+    tags: Optional[List[str]] = None
+    """Optional list of tags for the marketing message"""
 
     description: Optional[str] = None
     """A descriptive text explaining the workflow step"""
