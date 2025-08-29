@@ -218,7 +218,7 @@ class MarketingAgent(CitizenAgentBase):
                     "energy drink with natural caffeine and B vitamins for steady energy "
                     "without the crash."
                 ),
-                "reach_prob": 0.6,
+                "reach_prob": 0.1,
                 "target_tags": ["fitness", "health"],
             },
             10: {
@@ -226,14 +226,14 @@ class MarketingAgent(CitizenAgentBase):
                     "Rumor 10:00 - Social media posts claim Z-Energy Zero gives people "
                     "headaches and jitters."
                 ),
-                "reach_prob": 0.8,
+                "reach_prob": 0.7,
             },
             12: {
                 "message": (
                     "Rebuttal 12:00 - The brand releases official lab results showing "
                     "ingredients are safe and no evidence links the drink to headaches."
                 ),
-                "reach_prob": 0.7,
+                "reach_prob": 0.9,
             },
         }
 
@@ -377,7 +377,7 @@ config = Config(
         LLMConfig(
             provider="openai",
             base_url=None,
-            api_key="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",
+            api_key="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",
             model="gpt-4o-mini",
             concurrency=200,
             timeout=60,
