@@ -1000,7 +1000,12 @@ const WorkflowList: React.FC = () => {
                                                                     )}
                                                                         {stepType === WorkflowType.MARKETING_MESSAGE && (
                                                                             <Form.List name={[name, 'groups']}>
-                                                                                {(fields, { add, remove }) => (
+                                                                                {(fields, { add, remove }) => {
+                                                                                    if (fields.length === 0) {
+                                                                                        add();
+                                                                                        return null;
+                                                                                    }
+                                                                                    return (
                                                                                     <>
                                                                                         {fields.map((field, gIdx) => (
                                                                                             <Row key={field.key} gutter={8} align="middle">
@@ -1099,7 +1104,8 @@ const WorkflowList: React.FC = () => {
                                                                                             </Button>
                                                                                         </Form.Item>
                                                                                     </>
-                                                                                )}
+                                                                                    );
+                                                                                }}
                                                                             </Form.List>
                                                                         )}
                                                                     {stepType === WorkflowType.SAVE_CONTEXT && (
