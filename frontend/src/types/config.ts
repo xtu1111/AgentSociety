@@ -103,6 +103,8 @@ export interface MarketingGroupConfig {
   intervene_message: string;
   reach_prob: number;
   repeat?: number;
+  send_time?: string;
+  description?: string;
   tags?: string[];
 }
 
