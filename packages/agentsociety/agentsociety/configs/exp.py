@@ -99,7 +99,7 @@ class MarketingGroupConfig(BaseModel):
     repeat: int = 1
     """Number of times to repeat sending this message"""
 
-        send_time: Optional[str] = None
+    send_time: Optional[str] = None
     """Optional time of day to send the message (HH:MM)"""
 
     description: Optional[str] = None
