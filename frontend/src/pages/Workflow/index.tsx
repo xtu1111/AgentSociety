@@ -394,7 +394,7 @@ const WorkflowList: React.FC = () => {
         if (changedValues.config) {
             const config = allValues.config;
             config.forEach((step, index) => {
-                if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(step.type)) {
                     if (!targetAgentModes[index]) {
                         // 根据 target_agent 的值类型设置默认 mode
                         const targetAgent = step.target_agent;
@@ -823,7 +823,7 @@ const WorkflowList: React.FC = () => {
                                                             );
                                                         }
 
-                                                        if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(stepType)) {
+                                                        if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(stepType)) {
                                                             return (
                                                                 <>
                                                                     <Col span={12}>
