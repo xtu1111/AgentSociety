@@ -394,6 +394,18 @@ const WorkflowList: React.FC = () => {
         if (changedValues.config) {
             const config = allValues.config;
             config.forEach((step, index) => {
+                if (step.type === WorkflowType.MARKETING_MESSAGE) {
+                    if (!step.groups || step.groups.length === 0) {
+                        form.setFieldValue(['config', index, 'groups'], [{}]);
+                    }
+                    step.groups?.forEach((_: any, gIdx: number) => {
+                        const key = `${index}-${gIdx}`;
+                        if (!groupTargetAgentModes[key]) {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                    });
+                    return;
+                }
                 if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
                     if (!targetAgentModes[index]) {
                         // 根据 target_agent 的值类型设置默认 mode
@@ -711,17 +723,24 @@ const WorkflowList: React.FC = () => {
                                                         />
                                                     </Form.Item>
                                                 </Col>
-                                                <Col span={7}>
-                                                    <Form.Item
-                                                        {...restField}
-                                                        name={[name, 'description']}
-                                                        label={t('workflow.description')}
-                                                        tooltip={t('workflow.descriptionTooltip')}
-                                                        style={{ marginBottom: 8 }}
-                                                    >
-                                                        <Input placeholder={t('workflow.enterStepDescription')} />
-                                                    </Form.Item>
-                                                </Col>
+                                                <Form.Item shouldUpdate noStyle>
+                                                    {() => {
+                                                        const stepType = form.getFieldValue(['config', name, 'type']);
+                                                        return stepType !== WorkflowType.MARKETING_MESSAGE ? (
+                                                            <Col span={7}>
+                                                                <Form.Item
+                                                                    {...restField}
+                                                                    name={[name, 'description']}
+                                                                    label={t('workflow.description')}
+                                                                    tooltip={t('workflow.descriptionTooltip')}
+                                                                    style={{ marginBottom: 8 }}
+                                                                >
+                                                                    <Input placeholder={t('workflow.enterStepDescription')} />
+                                                                </Form.Item>
+                                                            </Col>
+                                                        ) : null;
+                                                    }}
+                                                </Form.Item>
                                                 {/* 动态字段渲染 */}
                                                 <Form.Item shouldUpdate noStyle>
                                                     {() => {
@@ -987,12 +1006,16 @@ const WorkflowList: React.FC = () => {
                                                                     )}
                                                                         {stepType === WorkflowType.MARKETING_MESSAGE && (
                                                                             <Form.List name={[name, 'groups']}>
+<<<<<<< HEAD
                                                                                 {(fields, { add, remove }) => {
                                                                                     if (fields.length === 0) {
                                                                                         add();
                                                                                         return null;
                                                                                     }
                                                                                     return (
+=======
+                                                                                {(fields, { add, remove }) => (
+>>>>>>> 9169ef1 (feat: update index.tsx)
                                                                                     <>
                                                                                         {fields.map((field, gIdx) => (
                                                                                             <Row key={field.key} gutter={8} align="middle">
@@ -1025,7 +1048,11 @@ const WorkflowList: React.FC = () => {
                                                                                                         style={{ marginBottom: 8 }}
                                                                                                     >
                                                                                                         <Select
+<<<<<<< HEAD
                                                                                                             value={groupTargetAgentModes[`${name}-${gIdx}`] || 'list'}
+=======
+                                                                                                            value={groupTargetAgentModes[`${name}-${gIdx}`] || 'expression'}
+>>>>>>> 9169ef1 (feat: update index.tsx)
                                                                                                             onChange={(value) => handleGroupTargetAgentModeChange(name, gIdx, value)}
                                                                                                             options={[
                                                                                                                 { value: 'list', label: t('workflow.targetAgentModeList') },
@@ -1113,8 +1140,12 @@ const WorkflowList: React.FC = () => {
                                                                                             </Button>
                                                                                         </Form.Item>
                                                                                     </>
+<<<<<<< HEAD
                                                                                     );
                                                                                 }}
+=======
+                                                                                )}
+>>>>>>> 9169ef1 (feat: update index.tsx)
                                                                             </Form.List>
                                                                         )}
                                                                     {stepType === WorkflowType.SAVE_CONTEXT && (
