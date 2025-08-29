@@ -1811,7 +1811,11 @@ class SimulationEngine:
                                     if random.random() <= group.reach_prob:
                                         chosen.append(cid)
                                 if chosen:
-                                    await self.send_intervention_message(group.intervene_message, chosen)
+                                    payload = json.dumps({
+                                        "content": group.intervene_message,
+                                        "tags": group.tags or [],
+                                    }, ensure_ascii=False)
+                                    await self.send_intervention_message(payload, chosen)
                     else:
                         assert step.intervene_message is not None
                         targets = (
@@ -1834,15 +1838,11 @@ class SimulationEngine:
                                 if random.random() <= prob:
                                     chosen.append(cid)
                             if chosen:
-                                await self.send_intervention_message(step.intervene_message, chosen)
-                elif step.type == WorkflowType.NEXT_ROUND:
-                    await self.next_round()
-                elif step.type == WorkflowType.DELETE_AGENT:
-                    assert step.target_agent is not None
-                    target_agent_ids = await self._extract_target_agent_ids(
-                        step.target_agent
-                    )
-                    await self.delete_agents(target_agent_ids)
+                                payload = json.dumps({
+                                    "content": step.intervene_message,
+                                    "tags": step.tags or [],
+                                }, ensure_ascii=False)
+                                await self.send_intervention_message(payload, chosen)
                 elif step.type == WorkflowType.SAVE_CONTEXT:
                     assert step.target_agent is not None
                     assert step.key is not None
