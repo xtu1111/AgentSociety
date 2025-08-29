@@ -377,7 +377,7 @@ config = Config(
         LLMConfig(
             provider="openai",
             base_url=None,
-            api_key="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",
+            api_key="",
             model="gpt-4o-mini",
             concurrency=200,
             timeout=60,
