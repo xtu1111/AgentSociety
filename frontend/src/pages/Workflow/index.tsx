@@ -1006,16 +1006,7 @@ const WorkflowList: React.FC = () => {
                                                                     )}
                                                                         {stepType === WorkflowType.MARKETING_MESSAGE && (
                                                                             <Form.List name={[name, 'groups']}>
-<<<<<<< HEAD
-                                                                                {(fields, { add, remove }) => {
-                                                                                    if (fields.length === 0) {
-                                                                                        add();
-                                                                                        return null;
-                                                                                    }
-                                                                                    return (
-=======
                                                                                 {(fields, { add, remove }) => (
->>>>>>> 9169ef1 (feat: update index.tsx)
                                                                                     <>
                                                                                         {fields.map((field, gIdx) => (
                                                                                             <Row key={field.key} gutter={8} align="middle">
@@ -1048,11 +1039,7 @@ const WorkflowList: React.FC = () => {
                                                                                                         style={{ marginBottom: 8 }}
                                                                                                     >
                                                                                                         <Select
-<<<<<<< HEAD
-                                                                                                            value={groupTargetAgentModes[`${name}-${gIdx}`] || 'list'}
-=======
                                                                                                             value={groupTargetAgentModes[`${name}-${gIdx}`] || 'expression'}
->>>>>>> 9169ef1 (feat: update index.tsx)
                                                                                                             onChange={(value) => handleGroupTargetAgentModeChange(name, gIdx, value)}
                                                                                                             options={[
                                                                                                                 { value: 'list', label: t('workflow.targetAgentModeList') },
@@ -1140,12 +1127,7 @@ const WorkflowList: React.FC = () => {
                                                                                             </Button>
                                                                                         </Form.Item>
                                                                                     </>
-<<<<<<< HEAD
-                                                                                    );
-                                                                                }}
-=======
                                                                                 )}
->>>>>>> 9169ef1 (feat: update index.tsx)
                                                                             </Form.List>
                                                                         )}
                                                                     {stepType === WorkflowType.SAVE_CONTEXT && (
