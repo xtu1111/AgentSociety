@@ -1793,13 +1793,13 @@ class SimulationEngine:
                         step.intervene_message, target_agent_ids
                     )
                 elif step.type == WorkflowType.MARKETING_MESSAGE:
-                    if step.send_time is not None:
-                        target_tick = _parse_hhmm(step.send_time)
-                        current_tick = self.environment.get_tick()
-                        if current_tick < target_tick:
-                            await self.step(target_tick - current_tick)
                     if step.groups:
                         for group in step.groups:
+                            if group.send_time is not None:
+                                target_tick = _parse_hhmm(group.send_time)
+                                current_tick = self.environment.get_tick()
+                                if current_tick < target_tick:
+                                    await self.step(target_tick - current_tick)
                             targets = (
                                 await self._extract_target_agent_ids(group.target_agent)
                                 if group.target_agent is not None
@@ -1817,6 +1817,11 @@ class SimulationEngine:
                                     }, ensure_ascii=False)
                                     await self.send_intervention_message(payload, chosen)
                     else:
+                        if step.send_time is not None:
+                            target_tick = _parse_hhmm(step.send_time)
+                            current_tick = self.environment.get_tick()
+                            if current_tick < target_tick:
+                                await self.step(target_tick - current_tick)
                         assert step.intervene_message is not None
                         targets = (
                             await self._extract_target_agent_ids(step.target_agent)
