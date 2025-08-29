@@ -94,6 +94,7 @@ export interface WorkflowStepConfig {
   repeat?: number;
   send_time?: string;
   groups?: MarketingGroupConfig[];
+  tags?: string[];
   description?: string;
 }
 
@@ -102,6 +103,7 @@ export interface MarketingGroupConfig {
   intervene_message: string;
   reach_prob: number;
   repeat?: number;
+  tags?: string[];
 }
 
 export interface MetricExtractorConfig {
