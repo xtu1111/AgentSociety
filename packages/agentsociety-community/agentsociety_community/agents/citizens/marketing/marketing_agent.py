@@ -24,6 +24,16 @@ RNG = np.random.default_rng(42)
 # profile mapping populated by workflow setup function
 ID_TO_PROFILE: Dict[int, dict] = {}
 
+# relation type weights for diffusion
+RELATION_WEIGHTS: Dict[str, float] = {
+    "friend": 1.0,
+    "family": 1.3,
+    "colleague": 0.9,
+    "online": 0.7,
+}
+
+BETA = 0.5
+
 
 async def _consult_llm(
     agent: "MarketingAgent",
@@ -109,6 +119,19 @@ async def _consult_llm(
     return new_sentiment, new_adopted, say, share, suggested, emotion, thought, attitude, need
 
 
+def _similarity(tags: List[str], profile: dict) -> float:
+    """Compute similarity between message tags and a profile's interests/profession."""
+    if not tags:
+        return 0.0
+    tags_set = set(tags)
+    interests = set(profile.get("interests", []))
+    inter = tags_set & interests
+    sim_interests = len(inter) / len(tags_set)
+    profession = profile.get("profession", "")
+    sim_prof = 1.0 if profession and profession in tags_set else 0.0
+    return max(sim_interests, sim_prof)
+
+
 class MarketingAgent(CitizenAgentBase):
     """Citizen reacting to marketing information."""
 
@@ -133,7 +156,9 @@ class MarketingAgent(CitizenAgentBase):
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
 
-    async def _handle_message(self, content: str, sender_id: int | None = None) -> str:
+    async def _handle_message(
+        self, content: str, sender_id: int | None = None, tags: List[str] | None = None
+    ) -> str:
         profile = await self.memory.status.get("profile") or {}
         sentiment = await self.memory.status.get("sentiment")
         adopted = await self.memory.status.get("adopted")
@@ -143,13 +168,20 @@ class MarketingAgent(CitizenAgentBase):
             new_sentiment,
             new_adopted,
             say,
-            share,
+            llm_share,
             suggested,
             emotion,
             thought,
             attitude,
             need,
         ) = await _consult_llm(self, profile, sentiment, adopted, content, friend_names)
+        model = profile.get("share_model", "rule")
+        if model != "llm":
+            sim_self = _similarity(tags or [], profile)
+            share = bool(RNG.random() < (0.3 + 0.5 * sim_self))
+            suggested = []
+        else:
+            share = llm_share
         exposure = await self.memory.status.get("exposure_count") or 0
         exposure += 1
         await self.memory.status.update("exposure_count", exposure)
@@ -164,10 +196,12 @@ class MarketingAgent(CitizenAgentBase):
         await self.memory.status.update("attitude", attitude)
         await self.memory.status.update("current_need", need)
         if share:
-            await self._share_message(say, sender_id, suggested)
+            await self._share_message(say, tags or [], sender_id, suggested)
         return say
 
-    async def _share_message(self, content: str, exclude: int | None, suggested: List[str]) -> None:
+    async def _share_message(
+        self, content: str, tags: List[str], exclude: int | None, suggested: List[str]
+    ) -> None:
         friends = await self.memory.status.get("friends") or []
         if not friends:
             return
@@ -177,11 +211,16 @@ class MarketingAgent(CitizenAgentBase):
             if exclude is not None and fid == exclude:
                 continue
             strength = 0.5
+            relation_type = "friend"
             for conn in profile.get("connections", []):
                 if conn["target"] == fid:
                     strength = float(conn.get("strength", 0.5))
+                    relation_type = conn.get("relation_type", "friend")
                     break
-            weight = strength
+            weight = strength * RELATION_WEIGHTS.get(relation_type, 1.0)
+            friend_profile = ID_TO_PROFILE.get(fid, {})
+            sim = _similarity(tags, friend_profile)
+            weight *= 1 + BETA * sim
             if suggested and ID_TO_PROFILE.get(fid, {}).get("name") in suggested:
                 weight *= 2.0
             scores.append((weight, fid))
@@ -192,7 +231,7 @@ class MarketingAgent(CitizenAgentBase):
         probs = probs / probs.sum() if probs.sum() else np.ones_like(probs) / len(probs)
         k = min(self.max_forwards, len(neighbors))
         chosen = list(RNG.choice(neighbors, size=k, replace=False, p=probs))
-        serialized = json.dumps({"content": content}, ensure_ascii=False)
+        serialized = json.dumps({"content": content, "tags": tags}, ensure_ascii=False)
         shared = await self.memory.status.get("messages_shared") or 0
         shared += len(chosen)
         await self.memory.status.update("messages_shared", shared)
@@ -211,12 +250,14 @@ class MarketingAgent(CitizenAgentBase):
         try:
             data = json_repair.loads(raw)
             content = data.get("content", raw)
+            tags = data.get("tags", [])
         except Exception:
             content = raw
+            tags = []
         content = str(content)
         if not content:
             return ""
-        return await self._handle_message(content, sender_id)
+        return await self._handle_message(content, sender_id, tags)
 
     async def react_to_intervention(self, intervention_message: str):
-        await self._handle_message(intervention_message, None)
+        await self._handle_message(intervention_message, None, [])
