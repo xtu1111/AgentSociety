@@ -909,19 +909,6 @@ const WorkflowList: React.FC = () => {
                                                                             )}
                                                                         </>
                                                                     )}
-                                                                    {stepType === WorkflowType.MARKETING_MESSAGE && (
-                                                                        <Col span={6}>
-                                                                            <Form.Item
-                                                                                {...restField}
-                                                                                name={[name, 'send_time']}
-                                                                                label={t('workflow.sendTime')}
-                                                                                tooltip={t('workflow.sendTimeTooltip')}
-                                                                                style={{ marginBottom: 8 }}
-                                                                            >
-                                                                                <Input placeholder={t('workflow.enterSendTime')} />
-                                                                            </Form.Item>
-                                                                        </Col>
-                                                                    )}
                                                                     {stepType === WorkflowType.INTERVIEW && (
                                                                         <Col span={12}>
                                                                             <Form.Item
@@ -1010,6 +997,28 @@ const WorkflowList: React.FC = () => {
                                                                                         {fields.map((field, gIdx) => (
                                                                                             <Row key={field.key} gutter={8} align="middle">
                                                                                                 <Col span={12}>
+                                                                                                    <Form.Item
+                                                                                                        {...field}
+                                                                                                        name={[field.name, 'description']}
+                                                                                                        label={t('workflow.description')}
+                                                                                                        tooltip={t('workflow.descriptionTooltip')}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <Input placeholder={t('workflow.enterStepDescription')} />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                <Col span={6}>
+                                                                                                    <Form.Item
+                                                                                                        {...field}
+                                                                                                        name={[field.name, 'send_time']}
+                                                                                                        label={t('workflow.sendTime')}
+                                                                                                        tooltip={t('workflow.sendTimeTooltip')}
+                                                                                                        style={{ marginBottom: 8 }}
+                                                                                                    >
+                                                                                                        <Input placeholder={t('workflow.enterSendTime')} />
+                                                                                                    </Form.Item>
+                                                                                                </Col>
+                                                                                                <Col span={6}>
                                                                                                     <Form.Item
                                                                                                         label={t('workflow.targetAgentMode')}
                                                                                                         tooltip={t('workflow.targetAgentModeTooltip')}
