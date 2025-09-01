@@ -8,6 +8,7 @@ based on relationship strength and LLM guidance.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Dict, List, Tuple
 
 import json_repair
@@ -144,6 +145,7 @@ class MarketingAgent(CitizenAgentBase):
     def __init__(self, id: int, name: str, toolbox: AgentToolbox, memory: Memory,
                  agent_params=None, blocks=None) -> None:
         super().__init__(id, name, toolbox, memory, agent_params, blocks)
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.processed_msgs: set[Tuple[int, str]] = set()
         self.max_forwards = (
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
