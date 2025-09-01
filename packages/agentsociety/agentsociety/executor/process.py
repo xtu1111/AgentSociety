@@ -20,7 +20,13 @@ import errno
 
 from ..logger import get_logger
 
-__all__ = ["ProcessExecutor"]
+__all__ = ["ProcessExecutor", "ExperimentLogNotFoundError"]
+
+
+class ExperimentLogNotFoundError(FileNotFoundError):
+    """Raised when the experiment log file cannot be found."""
+
+    pass
 
 
 class ProcessExecutor:
@@ -194,12 +200,12 @@ class ProcessExecutor:
             exp_id (str): Experiment ID
 
         Raises:
-            Exception: If process not found or deletion fails
+            ExperimentNotRunningError: If process not found or deletion fails
         """
         status_file = self._get_status_file(exp_id, tenant_id)
 
         if not status_file.exists():
-            raise Exception("Experiment is not running")
+            raise ExperimentNotRunningError("Experiment is not running")
 
         # Read status with lock
         lock_fd = self._acquire_file_lock(status_file)
@@ -210,7 +216,7 @@ class ProcessExecutor:
             self._release_file_lock(lock_fd)
 
         if not status.get("pid"):
-            raise Exception("Process ID not found")
+            raise ExperimentNotRunningError("Process ID not found")
 
         try:
             # Send SIGTERM to the process group
@@ -255,12 +261,12 @@ class ProcessExecutor:
             str: Process logs
 
         Raises:
-            Exception: If logs not found
+            ExperimentLogNotFoundError: If logs not found
         """
         log_file = self._get_log_file(exp_id, tenant_id)
 
         if not log_file.exists():
-            raise Exception("Log file not found")
+            raise ExperimentLogNotFoundError("Log file not found")
 
         with open(log_file, "r") as f:
             return "\n".join(f.readlines()[-line_limit:])

@@ -26,3 +26,6 @@ agentsociety-sim
 agentsociety-ui
 agentsociety_data/
 .agentsociety-benchmark/
+!tests/
+!tests/**
+tests/**/__pycache__/

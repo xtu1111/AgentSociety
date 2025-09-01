@@ -1,3 +1,3 @@
-from .process import ProcessExecutor
+from .process import ProcessExecutor, ExperimentNotRunningError
 
-__all__ = ["ProcessExecutor"]
+__all__ = ["ProcessExecutor", "ExperimentNotRunningError"]

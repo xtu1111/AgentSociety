@@ -17,7 +17,7 @@ from ...configs import (
     AgentsConfig as SimAgentsConfig,
 )
 from ...filesystem import FileSystemClient
-from ...executor import ProcessExecutor
+from ...executor import ProcessExecutor, ExperimentLogNotFoundError
 from ..models import ApiResponseWrapper
 from ..models.config import AgentConfig, LLMConfig, MapConfig, WorkflowConfig
 from ..models.experiment import Experiment, ExperimentStatus, RunningExperiment
@@ -265,7 +265,22 @@ async def delete_experiment(
             detail="Demo user is not allowed to delete experiments",
         )
     executor = cast(ProcessExecutor, request.app.state.executor)
-    await executor.delete(tenant_id, exp_id)
+    delete_error: Optional[HTTPException] = None
+    try:
+        await executor.delete(tenant_id, exp_id)
+    except Exception as e:  # Experiment may not be running
+        logger.error(f"Failed to delete experiment {exp_id}: {e}")
+        message = str(e)
+        if "Experiment is not running" in message:
+            delete_error = HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=message
+            )
+        elif "Process ID not found" in message:
+            delete_error = HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=message
+            )
+        else:
+            raise
 
     # update experiment status to STOPPED
     async with request.app.state.get_db() as db:
@@ -291,6 +306,9 @@ async def delete_experiment(
         await db.execute(stmt)
         await db.commit()
 
+    if delete_error:
+        raise delete_error
+
 
 @router.get("/run-experiments/{exp_id}/log")
 async def get_experiment_logs(
@@ -305,7 +323,11 @@ async def get_experiment_logs(
             detail="Demo user is not allowed to view experiment logs",
         )
     executor = cast(ProcessExecutor, request.app.state.executor)
-    logs = await executor.get_logs(tenant_id, exp_id)
+    try:
+        logs = await executor.get_logs(tenant_id, exp_id)
+    except ExperimentLogNotFoundError as e:
+        logger.error(f"{e}")
+        raise HTTPException(status_code=404, detail=str(e))
     return logs
 
 
