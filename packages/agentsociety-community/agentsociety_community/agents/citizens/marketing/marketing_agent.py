@@ -24,14 +24,7 @@ RNG = np.random.default_rng(42)
 # profile mapping populated by workflow setup function
 ID_TO_PROFILE: Dict[int, dict] = {}
 
-# relation type weights for diffusion
-RELATION_WEIGHTS: Dict[str, float] = {
-    "friend": 1.0,
-    "family": 1.3,
-    "colleague": 0.9,
-    "online": 0.7,
-}
-
+# coefficient for interest similarity boost
 BETA = 0.5
 
 
@@ -211,13 +204,11 @@ class MarketingAgent(CitizenAgentBase):
             if exclude is not None and fid == exclude:
                 continue
             strength = 0.5
-            relation_type = "friend"
             for conn in profile.get("connections", []):
                 if conn["target"] == fid:
                     strength = float(conn.get("strength", 0.5))
-                    relation_type = conn.get("relation_type", "friend")
                     break
-            weight = strength * RELATION_WEIGHTS.get(relation_type, 1.0)
+            weight = strength
             friend_profile = ID_TO_PROFILE.get(fid, {})
             sim = _similarity(tags, friend_profile)
             weight *= 1 + BETA * sim
@@ -261,3 +252,11 @@ class MarketingAgent(CitizenAgentBase):
 
     async def react_to_intervention(self, intervention_message: str):
         await self._handle_message(intervention_message, None, [])
+
+    async def forward(self) -> None:
+        """Execute one simulation tick.
+
+        Marketing agents are reactive: they only process incoming messages.
+        Thus, the default forward simply returns without additional action.
+        """
+        return
