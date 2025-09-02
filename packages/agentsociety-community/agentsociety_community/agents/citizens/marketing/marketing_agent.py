@@ -98,7 +98,12 @@ async def _consult_llm(
         need = data.get("current_need", "none")
         need = str(need) if isinstance(need, (str, int, float)) else "none"
     except Exception as e:  # pragma: no cover - LLM failures
-        agent.logger.warning(f"LLM parse failed for {agent.name}: {e}")
+        # `Agent` base class does not expose a public `name` attribute, so we log
+        # using the internal identifier to avoid attribute errors when LLM calls
+        # fail during simulation.
+        agent.logger.warning(
+            f"LLM parse failed for agent {getattr(agent, '_name', agent.id)}: {e}"
+        )
         new_sentiment = sentiment
         new_adopted = adopted
         say = message
