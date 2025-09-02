@@ -97,6 +97,9 @@ async def _consult_llm(
 
         need = data.get("current_need", "none")
         need = str(need) if isinstance(need, (str, int, float)) else "none"
+
+        await agent.memory.stream.add(topic="marketing", description=message)
+        await agent.save_agent_thought(thought)
     except Exception as e:  # pragma: no cover - LLM failures
         # `Agent` base class does not expose a public `name` attribute, so we log
         # using the internal identifier to avoid attribute errors when LLM calls
@@ -110,9 +113,12 @@ async def _consult_llm(
         share = True
         suggested = []
         emotion = "Neutral"
-        thought = ""
+        thought = f"LLM parse failed: {e}"
         attitude = "neutral"
         need = "none"
+
+        await agent.memory.stream.add(topic="marketing", description=message)
+        await agent.save_agent_thought(thought)
 
     new_sentiment = float(np.clip(new_sentiment, -1, 1))
     return new_sentiment, new_adopted, say, share, suggested, emotion, thought, attitude, need
