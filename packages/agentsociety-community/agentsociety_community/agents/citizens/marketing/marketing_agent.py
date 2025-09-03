@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import json_repair
 import numpy as np
@@ -22,7 +22,7 @@ from agentsociety.message import Message
 
 RNG = np.random.default_rng(42)
 
-# profile mapping populated by workflow setup function
+# profile mapping populated during initialization
 ID_TO_PROFILE: Dict[int, dict] = {}
 
 # coefficient for interest similarity boost
@@ -142,6 +142,9 @@ class MarketingAgent(CitizenAgentBase):
 
     StatusAttributes = [
         MemoryAttribute(name="friends", type=list, default_or_value=[], description="friend ids"),
+        MemoryAttribute(name="connections", type=list, default_or_value=[], description="social connections"),
+        MemoryAttribute(name="profession", type=str, default_or_value="", description="agent profession"),
+        MemoryAttribute(name="interests", type=list, default_or_value=[], description="agent interests"),
         MemoryAttribute(name="profile", type=dict, default_or_value={}, description="profile info"),
         MemoryAttribute(name="sentiment", type=float, default_or_value=0.0, description="sentiment [-1,1]"),
         MemoryAttribute(name="emotion", type=str, default_or_value="Neutral", description="current emotion"),
@@ -161,6 +164,28 @@ class MarketingAgent(CitizenAgentBase):
         self.max_forwards = (
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
+
+    async def init(self) -> None:  # pragma: no cover - simple data loading
+        """Load profile and connection data from memory."""
+        profile_keys = [
+            "name",
+            "age",
+            "occupation",
+            "profession",
+            "interests",
+            "connections",
+        ]
+        profile: Dict[str, Any] = {}
+        for key in profile_keys:
+            try:
+                profile[key] = await self.memory.status.get(key)
+            except KeyError:
+                continue
+        connections = profile.get("connections", [])
+        friends = [int(conn.get("target")) for conn in connections]
+        await self.memory.status.update("friends", friends)
+        await self.memory.status.update("profile", profile)
+        ID_TO_PROFILE[self.id] = profile
 
     async def _handle_message(
         self, content: str, sender_id: int | None = None, tags: List[str] | None = None
