@@ -243,7 +243,7 @@ class MarketingAgent(CitizenAgentBase):
             await self.send_message_to_agent(fid, serialized)
 
     async def do_chat(self, message: Message) -> str:
-        sender_id = message.payload.get("from")
+        sender_id = message.from_id
         raw = message.payload.get("content", "")
         if not raw:
             return ""
