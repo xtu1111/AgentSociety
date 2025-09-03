@@ -1,6 +1,7 @@
 """
 A clear version of the simulation.
 """
+# ruff: noqa: E402
 
 import asyncio
 import inspect
@@ -1439,7 +1440,13 @@ class SimulationEngine:
         statuses = []
         for agent in self._id2agent.values():
             if isinstance(agent, CitizenAgentBase):
-                position = await agent.status.get("position")
+                try:
+                    position = await agent.status.get("position")
+                except KeyError:
+                    get_logger().warning(
+                        f"No position for agent {agent.id}; skipping status save"
+                    )
+                    continue
                 x = position["xy_position"]["x"]
                 y = position["xy_position"]["y"]
                 lng, lat = self.environment.projector(x, y, inverse=True)
