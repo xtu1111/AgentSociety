@@ -8,6 +8,8 @@ from typing import Any, Optional
 import json
 import json_repair
 from pycityproto.city.person.v2 import person_pb2 as person_pb2
+from grpc import StatusCode
+from grpc.aio import AioRpcError
 
 from ..environment.sim.person_service import PersonService
 from ..logger import get_logger
@@ -146,7 +148,13 @@ class CitizenAgentBase(Agent):
         """
         if self.environment is None:
             raise ValueError("Environment is not initialized")
-        resp = await self.environment.get_person(self.id)
+        try:
+            resp = await self.environment.get_person(self.id)
+        except AioRpcError as e:
+            if e.code() == StatusCode.INVALID_ARGUMENT:
+                get_logger().warning(f"no person data for id {self.id}")
+                return
+            raise
         resp_dict = resp["person"]
         for k, v in resp_dict.get("motion", {}).items():
             await self.status.update(k, v, mode="replace")
