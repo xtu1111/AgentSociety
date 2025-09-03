@@ -179,7 +179,7 @@ class MarketingAgent(CitizenAgentBase):
 
     async def init(self) -> None:
         await super().init()
-        cfg = self.toolbox.config.agents.citizens[0]
+        cfg = self.toolbox.Config.agents.citizens[0]
         if getattr(cfg, "memory_from_file", None):
             await self._load_profiles(cfg.memory_from_file)
         profile = ID_TO_PROFILE.get(self.id, {})
