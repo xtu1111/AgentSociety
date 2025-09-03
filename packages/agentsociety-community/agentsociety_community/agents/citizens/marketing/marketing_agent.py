@@ -1,3 +1,4 @@
+# packages/agentsociety-community/agentsociety_community/agents/citizens/marketing/marketing_agent.py
 """Marketing agent template for diffusion experiments.
 
 Agents update their sentiment toward a product when receiving
@@ -179,7 +180,7 @@ class MarketingAgent(CitizenAgentBase):
 
     async def init(self) -> None:
         await super().init()
-        cfg = self.toolbox.Config.agents.citizens[0]
+        cfg = self.toolbox.config.agents.citizens[0]
         if getattr(cfg, "memory_from_file", None):
             await self._load_profiles(cfg.memory_from_file)
         profile = ID_TO_PROFILE.get(self.id, {})
