@@ -9,6 +9,7 @@ from typing import List
 from agentsociety.configs.exp import ExpConfig, WorkflowStepConfig, WorkflowType
 from agentsociety.environment import EnvironmentConfig
 from agentsociety.simulation import AgentSociety
+from agentsociety.cityagent import bind_agent_info
 
 from ....agents.citizens.marketing import marketing_agent
 
@@ -95,4 +96,4 @@ MARKETING_WORKFLOW = ExpConfig(
 
 
 # default initialization functions for this experiment
-INIT_FUNCS: List = [setup_agents]
+INIT_FUNCS: List = [bind_agent_info, setup_agents]
