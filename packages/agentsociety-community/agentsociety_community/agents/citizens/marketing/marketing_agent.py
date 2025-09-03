@@ -4,12 +4,12 @@ Agents update their sentiment toward a product when receiving
 messages and decide whether to forward the information to friends
 based on relationship strength and LLM guidance.
 """
-
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 import json_repair
 import numpy as np
@@ -24,6 +24,7 @@ RNG = np.random.default_rng(42)
 
 # profile mapping populated during initialization
 ID_TO_PROFILE: Dict[int, dict] = {}
+_profiles_loaded = False
 
 # coefficient for interest similarity boost
 BETA = 0.5
@@ -101,9 +102,6 @@ async def _consult_llm(
         await agent.memory.stream.add(topic="marketing", description=message)
         await agent.save_agent_thought(thought)
     except Exception as e:  # pragma: no cover - LLM failures
-        # `Agent` base class does not expose a public `name` attribute, so we log
-        # using the internal identifier to avoid attribute errors when LLM calls
-        # fail during simulation.
         agent.logger.warning(
             f"LLM parse failed for agent {getattr(agent, '_name', agent.id)}: {e}"
         )
@@ -142,9 +140,6 @@ class MarketingAgent(CitizenAgentBase):
 
     StatusAttributes = [
         MemoryAttribute(name="friends", type=list, default_or_value=[], description="friend ids"),
-        MemoryAttribute(name="connections", type=list, default_or_value=[], description="social connections"),
-        MemoryAttribute(name="profession", type=str, default_or_value="", description="agent profession"),
-        MemoryAttribute(name="interests", type=list, default_or_value=[], description="agent interests"),
         MemoryAttribute(name="profile", type=dict, default_or_value={}, description="profile info"),
         MemoryAttribute(name="sentiment", type=float, default_or_value=0.0, description="sentiment [-1,1]"),
         MemoryAttribute(name="emotion", type=str, default_or_value="Neutral", description="current emotion"),
@@ -156,8 +151,15 @@ class MarketingAgent(CitizenAgentBase):
         MemoryAttribute(name="messages_shared", type=int, default_or_value=0, description="forwarded messages"),
     ]
 
-    def __init__(self, id: int, name: str, toolbox: AgentToolbox, memory: Memory,
-                 agent_params=None, blocks=None) -> None:
+    def __init__(
+        self,
+        id: int,
+        name: str,
+        toolbox: AgentToolbox,
+        memory: Memory,
+        agent_params=None,
+        blocks=None,
+    ) -> None:
         super().__init__(id, name, toolbox, memory, agent_params, blocks)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.processed_msgs: set[Tuple[int, str]] = set()
@@ -165,27 +167,25 @@ class MarketingAgent(CitizenAgentBase):
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
 
-    async def init(self) -> None:  # pragma: no cover - simple data loading
-        """Load profile and connection data from memory."""
-        profile_keys = [
-            "name",
-            "age",
-            "occupation",
-            "profession",
-            "interests",
-            "connections",
-        ]
-        profile: Dict[str, Any] = {}
-        for key in profile_keys:
-            try:
-                profile[key] = await self.memory.status.get(key)
-            except KeyError:
-                continue
-        connections = profile.get("connections", [])
-        friends = [int(conn.get("target")) for conn in connections]
-        await self.memory.status.update("friends", friends)
+    @classmethod
+    async def _load_profiles(cls, memory_path: str) -> None:
+        """Load all agent profiles once from a JSON file."""
+        global ID_TO_PROFILE
+        if cls._profiles_loaded:
+            return
+        data = json.loads(Path(memory_path).read_text(encoding="utf-8"))
+        cls.ID_TO_PROFILE = {int(p["id"]): p for p in data if "id" in p}
+        cls._profiles_loaded = True
+
+    async def init(self) -> None:
+        await super().init()
+        cfg = self.toolbox.config.agents.citizens[0]
+        if getattr(cfg, "memory_from_file", None):
+            await self._load_profiles(cfg.memory_from_file)
+        profile = ID_TO_PROFILE.get(self.id, {})
+        friends = [int(c.get("target")) for c in profile.get("connections", [])]
         await self.memory.status.update("profile", profile)
-        ID_TO_PROFILE[self.id] = profile
+        await self.memory.status.update("friends", friends)
 
     async def _handle_message(
         self, content: str, sender_id: int | None = None, tags: List[str] | None = None
