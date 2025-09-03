@@ -328,7 +328,11 @@ class StreamMemory:
         if self._environment is None:
             raise ValueError("Environment is not initialized")
         day, t = self._environment.get_datetime()
-        position = await self._status_memory.get("position")
+        try:
+            position = await self._status_memory.get("position")
+        except KeyError:
+            position = {}
+
         if "aoi_position" in position:
             location = position["aoi_position"]["aoi_id"]
         elif "lane_position" in position:
