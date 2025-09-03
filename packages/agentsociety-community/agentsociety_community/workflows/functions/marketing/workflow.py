@@ -63,6 +63,8 @@ async def report_sentiment(simulation: AgentSociety):
 MARKETING_WORKFLOW = ExpConfig(
     name="marketing_campaign",
     workflow=[
+        WorkflowStepConfig(type=WorkflowType.FUNCTION, func=bind_agent_info),
+        WorkflowStepConfig(type=WorkflowType.FUNCTION, func=setup_agents),
         WorkflowStepConfig(
             type=WorkflowType.MARKETING_MESSAGE,
             intervene_message=(
@@ -95,5 +97,5 @@ MARKETING_WORKFLOW = ExpConfig(
 )
 
 
-# default initialization functions for this experiment
-INIT_FUNCS: List = [bind_agent_info, setup_agents]
+# default initialization functions are no longer required; initialization is handled in the workflow steps
+INIT_FUNCS: List = []
