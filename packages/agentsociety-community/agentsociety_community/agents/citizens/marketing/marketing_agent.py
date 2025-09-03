@@ -150,6 +150,9 @@ class MarketingAgent(CitizenAgentBase):
 
     StatusAttributes = [
         MemoryAttribute(name="friends", type=list, default_or_value=[], description="friend ids"),
+        MemoryAttribute(name="connections", type=list, default_or_value=[], description="social connections"),
+        MemoryAttribute(name="profession", type=str, default_or_value="", description="agent profession"),
+        MemoryAttribute(name="interests", type=list, default_or_value=[], description="agent interests"),
         MemoryAttribute(name="profile", type=dict, default_or_value={}, description="profile info"),
         MemoryAttribute(name="sentiment", type=float, default_or_value=0.0, description="sentiment [-1,1]"),
         MemoryAttribute(name="emotion", type=str, default_or_value="Neutral", description="current emotion"),
