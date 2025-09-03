@@ -84,21 +84,6 @@ def _import_marketing_setup_agents() -> Type[FunctionType]:
     return setup_agents
 
 
-def _import_marketing_send_advertisement() -> Type[FunctionType]:
-    from .marketing.workflow import send_advertisement
-    return send_advertisement
-
-
-def _import_marketing_send_rumor() -> Type[FunctionType]:
-    from .marketing.workflow import send_rumor
-    return send_rumor
-
-
-def _import_marketing_send_rebuttal() -> Type[FunctionType]:
-    from .marketing.workflow import send_rebuttal
-    return send_rebuttal
-
-
 def _import_marketing_report_sentiment() -> Type[FunctionType]:
     from .marketing.workflow import report_sentiment
     return report_sentiment
@@ -125,9 +110,6 @@ __all__ = [
     "start_emission_log_bdsc_2025_track_one",
     "send_carbon_awareness_survey_bdsc_2025_track_one",
     "marketing_setup_agents",
-    "marketing_send_advertisement",
-    "marketing_send_rumor",
-    "marketing_send_rebuttal",
     "marketing_report_sentiment",
     "init_simulation_context_bdsc_2025_track_two",
     "send_and_gather_survey_results_bdsc_2025_track_two",
@@ -146,9 +128,6 @@ def get_type_to_cls_dict() -> Dict[str, Callable[[], Type[FunctionType]]]:
         "start_emission_log_bdsc_2025_track_one": _import_start_emission_log_bdsc_2025_track_one,
         "send_carbon_awareness_survey_bdsc_2025_track_one": _import_send_carbon_awareness_survey_bdsc_2025_track_one,
         "marketing_setup_agents": _import_marketing_setup_agents,
-        "marketing_send_advertisement": _import_marketing_send_advertisement,
-        "marketing_send_rumor": _import_marketing_send_rumor,
-        "marketing_send_rebuttal": _import_marketing_send_rebuttal,
         "marketing_report_sentiment": _import_marketing_report_sentiment,
         "init_simulation_context_bdsc_2025_track_two": _import_init_simulation_context_bdsc_2025_track_two,
         "send_and_gather_survey_results_bdsc_2025_track_two": _import_send_and_gather_survey_results_bdsc_2025_track_two,
