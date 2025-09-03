@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import json_repair
@@ -25,7 +24,6 @@ RNG = np.random.default_rng(42)
 
 # profile mapping populated during initialization
 ID_TO_PROFILE: Dict[int, dict] = {}
-_profiles_loaded = False
 
 # coefficient for interest similarity boost
 BETA = 0.5
@@ -136,6 +134,17 @@ def _similarity(tags: List[str], profile: dict) -> float:
     return max(sim_interests, sim_prof)
 
 
+async def _extract_profile_from_memory(memory: Memory) -> dict:
+    """Gather basic profile information stored in agent memory."""
+    profile: Dict[str, object] = {}
+    for key in ["name", "age", "occupation", "profession", "interests", "connections"]:
+        try:
+            profile[key] = await memory.status.get(key)
+        except KeyError:
+            continue
+    return profile
+
+
 class MarketingAgent(CitizenAgentBase):
     """Citizen reacting to marketing information."""
 
@@ -168,25 +177,14 @@ class MarketingAgent(CitizenAgentBase):
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
 
-    @classmethod
-    async def _load_profiles(cls, memory_path: str) -> None:
-        """Load all agent profiles once from a JSON file."""
-        global ID_TO_PROFILE
-        if cls._profiles_loaded:
-            return
-        data = json.loads(Path(memory_path).read_text(encoding="utf-8"))
-        cls.ID_TO_PROFILE = {int(p["id"]): p for p in data if "id" in p}
-        cls._profiles_loaded = True
-
     async def init(self) -> None:
         await super().init()
-        cfg = self.toolbox.config.agents.citizens[0]
-        if getattr(cfg, "memory_from_file", None):
-            await self._load_profiles(cfg.memory_from_file)
-        profile = ID_TO_PROFILE.get(self.id, {})
-        friends = [int(c.get("target")) for c in profile.get("connections", [])]
+        profile = await _extract_profile_from_memory(self.memory)
+        connections = profile.get("connections", [])
+        friends = [int(c.get("target")) for c in connections]
         await self.memory.status.update("profile", profile)
         await self.memory.status.update("friends", friends)
+        ID_TO_PROFILE[self.id] = profile
 
     async def _handle_message(
         self, content: str, sender_id: int | None = None, tags: List[str] | None = None
