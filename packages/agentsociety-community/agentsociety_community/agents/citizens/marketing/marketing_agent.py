@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import json_repair
 import numpy as np
+import re
 
 from agentsociety.agent import CitizenAgentBase, MemoryAttribute
 from agentsociety.agent.agent_base import AgentToolbox
@@ -28,6 +30,36 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 # coefficient for interest similarity boost
 BETA = 0.5
 
+def _extract_text(raw: str) -> str:
+    """Best-effort extraction of human-readable text from potential JSON."""
+    text = raw.strip()
+    if re.match(r"^content\s*[:\uff1a]", text, flags=re.IGNORECASE):
+        text = re.sub(r"^content\s*[:\uff1a]\s*", "", text, flags=re.IGNORECASE)
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, str):
+            return parsed
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("content"), str):
+                return parsed["content"]
+            if isinstance(parsed.get("message"), str):
+                return parsed["message"]
+        if isinstance(parsed, list) and parsed:
+            first = parsed[0]
+            if isinstance(first, str):
+                return first
+            if isinstance(first, dict) and isinstance(first.get("content"), str):
+                return first["content"]
+    except Exception:  # pragma: no cover - heuristic parsing
+        match = re.search(
+            r""""?content"?[:\uff1a]\s*(?:"([^"]*)"|'([^']*)')""",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1) or match.group(2) or text
+    return text
+
 
 async def _consult_llm(
     agent: "MarketingAgent",
@@ -36,13 +68,15 @@ async def _consult_llm(
     adopted: bool,
     message: str,
     friend_names: List[str],
+    exposure: int,
 ) -> Tuple[float, bool, str, bool, List[str], str, str, str, str]:
     """Query the LLM for updated sentiment, adoption and sharing decision."""
     dialog = [
         {
             "role": "system",
             "content": (
-                "You simulate how a consumer reacts to news about the Z-Energy Zero drink. "
+                "You are a person chatting with friends about an incoming piece of marketing or news. "
+                "Speak casually in first person and mention if you've heard similar news before. "
                 "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, \"share\": bool, "
                 "\"suggested_targets\": [string], \"emotion\": string, \"thought\": string, \"attitude\": string, \"current_need\": string}"
             ),
@@ -55,6 +89,7 @@ async def _consult_llm(
                 f"Friends: {', '.join(friend_names) if friend_names else 'none'}\n"
                 f"Current sentiment (-1 to 1): {sentiment:.2f}\n"
                 f"Has adopted?: {adopted}\n"
+                f"Seen before?: {'yes' if exposure > 0 else 'no'}\n"
                 f"Incoming message: {message}\n\nRespond with JSON."
             ),
         },
@@ -70,8 +105,8 @@ async def _consult_llm(
         raw_adopted = data.get("adopted", adopted)
         new_adopted = bool(raw_adopted) if isinstance(raw_adopted, (bool, int)) else adopted
 
-        say = data.get("say", "")
-        say = str(say) if isinstance(say, (str, int, float)) else ""
+        say_raw = data.get("say", "")
+        say = _extract_text(str(say_raw))
 
         raw_share = data.get("share", True)
         share = bool(raw_share) if isinstance(raw_share, (bool, int)) else True
@@ -137,7 +172,14 @@ def _similarity(tags: List[str], profile: dict) -> float:
 async def _extract_profile_from_memory(memory: Memory) -> dict:
     """Gather basic profile information stored in agent memory."""
     profile: Dict[str, object] = {}
-    for key in ["name", "age", "occupation", "profession", "interests", "connections"]:
+    for key in [
+        "name",
+        "age",
+        "occupation",
+        "profession",
+        "interests",
+        "connections",
+    ]:
         try:
             profile[key] = await memory.status.get(key)
         except KeyError:
@@ -197,6 +239,7 @@ class MarketingAgent(CitizenAgentBase):
         adopted = await self.memory.status.get("adopted")
         friends = await self.memory.status.get("friends") or []
         friend_names = [ID_TO_PROFILE.get(f, {}).get("name", "") for f in friends if f in ID_TO_PROFILE]
+        exposure = await self.memory.status.get("exposure_count") or 0
         (
             new_sentiment,
             new_adopted,
@@ -207,7 +250,9 @@ class MarketingAgent(CitizenAgentBase):
             thought,
             attitude,
             need,
-        ) = await _consult_llm(self, profile, sentiment, adopted, content, friend_names)
+        ) = await _consult_llm(
+            self, profile, sentiment, adopted, content, friend_names, exposure
+        )
         model = profile.get("share_model", "rule")
         if model != "llm":
             sim_self = _similarity(tags or [], profile)
@@ -215,7 +260,6 @@ class MarketingAgent(CitizenAgentBase):
             suggested = []
         else:
             share = llm_share
-        exposure = await self.memory.status.get("exposure_count") or 0
         exposure += 1
         await self.memory.status.update("exposure_count", exposure)
         # fatigue: dampen change as exposures accumulate
@@ -262,33 +306,23 @@ class MarketingAgent(CitizenAgentBase):
         probs = probs / probs.sum() if probs.sum() else np.ones_like(probs) / len(probs)
         k = min(self.max_forwards, len(neighbors))
         chosen = list(RNG.choice(neighbors, size=k, replace=False, p=probs))
-        serialized = json.dumps({"content": content, "tags": tags}, ensure_ascii=False)
         shared = await self.memory.status.get("messages_shared") or 0
         shared += len(chosen)
         await self.memory.status.update("messages_shared", shared)
         for fid in chosen:
-            await self.send_message_to_agent(fid, serialized)
+            await self.send_message_to_agent(fid, content)
 
     async def do_chat(self, message: Message) -> str:
         sender_id = message.from_id
-        raw = message.payload.get("content", "")
+        raw = str(message.payload)
         if not raw:
             return ""
         key = (sender_id or -1, raw)
         if key in self.processed_msgs:
             return ""
         self.processed_msgs.add(key)
-        try:
-            data = json_repair.loads(raw)
-            content = data.get("content", raw)
-            tags = data.get("tags", [])
-        except Exception:
-            content = raw
-            tags = []
-        content = str(content)
-        if not content:
-            return ""
-        return await self._handle_message(content, sender_id, tags)
+        content = str(raw)
+        return await self._handle_message(content, sender_id, [])
 
     async def react_to_intervention(self, intervention_message: str):
         await self._handle_message(intervention_message, None, [])
