@@ -1762,6 +1762,7 @@ class SimulationEngine:
         if self.enable_database:
             sentiments = await self.gather("sentiment", flatten=True)
             adopted = await self.gather("adopted", flatten=True)
+
             valid_sentiments = [s for s in sentiments if isinstance(s, (int, float))]
             avg_sentiment = (
                 sum(valid_sentiments) / len(valid_sentiments)
