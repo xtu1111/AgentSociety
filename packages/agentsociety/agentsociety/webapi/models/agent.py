@@ -119,7 +119,7 @@ class ApiAgentDialog(BaseModel):
     sentiment: Optional[float] = None
     """Sentiment score"""
     adopted: Optional[bool] = None
-    """Adoption status"""
+    """Adoption flag"""
     created_at: AwareDatetime
     """Created time"""
 

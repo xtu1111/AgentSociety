@@ -87,8 +87,8 @@ def agent_dialog(table_name: str):
         Column("type", Integer),
         Column("speaker", String),
         Column("content", String),
-        Column("sentiment", Float, nullable=True),
-        Column("adopted", Boolean, nullable=True),
+        Column("sentiment", Float),
+        Column("adopted", Boolean),
         Column("created_at", TIMESTAMP(timezone=True)),
     ), [
         "id",
