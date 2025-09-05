@@ -1,4 +1,4 @@
-import { Button, Col, Divider, Flex, GetProp, message, Modal, Row, Select, Tabs, Tooltip } from 'antd';
+import { Button, Col, Divider, Flex, GetProp, Tooltip, message, Modal, Row, Select, Tabs } from 'antd';
 import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, SmileOutlined, UpOutlined, UserOutlined, LineChartOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { AgentDialog, AgentProfile, AgentSurvey, ApiMetric } from './components/type';
 import { Bubble, Sender } from '@ant-design/x';
@@ -10,6 +10,60 @@ import { Model, Survey as SurveyUI } from 'survey-react-ui';
 import { fetchCustom } from '../../components/fetch';
 import { useTranslation } from 'react-i18next';
 import Plot from 'react-plotly.js';
+
+const extractDialogContent = (raw: string): string => {
+    let text = raw?.trim() ?? '';
+    // remove leading "content:" if present
+    if (/^content\s*[:：]/i.test(text)) {
+        text = text.replace(/^content\s*[:：]\s*/i, '');
+    }
+    try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed === 'string') {
+            return parsed;
+        }
+        if (parsed && typeof parsed.content === 'string') {
+            return parsed.content;
+        }
+        if (parsed && typeof parsed.message === 'string') {
+            return parsed.message;
+        }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            const first = parsed[0];
+            if (typeof first === 'string') {
+                return first;
+            }
+            if (first && typeof first.content === 'string') {
+                return first.content;
+            }
+        }
+    } catch (e) {
+        const match = text.match(/"?content"?[:：]\s*("([^"]*)"|'([^']*)')/i);
+        if (match) {
+            return match[2] ?? match[3] ?? text;
+        }
+    }
+    return text;
+};
+
+const getSentimentColor = (sentiment: number) => {
+    const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+    const grey = { r: 160, g: 160, b: 160 };
+    const red = { r: 255, g: 77, b: 79 };
+    const green = { r: 82, g: 196, b: 26 };
+    if (sentiment < 0) {
+        const t = clamp(sentiment + 1, 0, 1);
+        const r = red.r + (grey.r - red.r) * t;
+        const g = red.g + (grey.g - red.g) * t;
+        const b = red.b + (grey.b - red.b) * t;
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+    const t = clamp(sentiment, 0, 1);
+    const r = grey.r + (green.r - grey.r) * t;
+    const g = grey.g + (green.g - grey.g) * t;
+    const b = grey.b + (green.b - grey.b) * t;
+    return `rgb(${r}, ${g}, ${b})`;
+};
 
 const roles: GetProp<typeof Bubble.List, 'roles'> = {
     self: {
@@ -30,25 +84,6 @@ const roles: GetProp<typeof Bubble.List, 'roles'> = {
         placement: 'end',
         avatar: { icon: <UserOutlined />, style: { background: '#87d068' } },
     },
-};
-
-const getSentimentColor = (sentiment: number) => {
-    const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
-    const grey = { r: 160, g: 160, b: 160 };
-    const red = { r: 255, g: 77, b: 79 };
-    const green = { r: 82, g: 196, b: 26 };
-    if (sentiment < 0) {
-        const t = clamp(sentiment + 1, 0, 1);
-        const r = red.r + (grey.r - red.r) * t;
-        const g = red.g + (grey.g - red.g) * t;
-        const b = red.b + (grey.b - red.b) * t;
-        return `rgb(${r}, ${g}, ${b})`;
-    }
-    const t = clamp(sentiment, 0, 1);
-    const r = grey.r + (green.r - grey.r) * t;
-    const g = grey.g + (green.g - grey.g) * t;
-    const b = grey.b + (green.b - grey.b) * t;
-    return `rgb(${r}, ${g}, ${b})`;
 };
 
 export const RightPanel = observer(() => {
@@ -128,16 +163,8 @@ export const RightPanel = observer(() => {
             roles={roles}
             className={type === 2 ? 'bubble-input' : 'bubble-no-input'}
             items={agentDialogs.filter(m => m.type === type).map((m, i) => {
-                // try to parse content as JSON
-                let content = m.content;
-                try {
-                    const contentJson = JSON.parse(m.content);
-                    if (contentJson.content !== undefined) {
-                        content = contentJson.content;
-                    }
-                } catch (e) {
-                }
                 const { role, name } = getRoleByChatMessage(m);
+                const content = extractDialogContent(m.content);
 
                 return {
                     key: `${m.id}-${i}`,
@@ -146,8 +173,16 @@ export const RightPanel = observer(() => {
                     content: content,
                     header: <div>
                         {name} ({t('replay.day', { day: m.day })} {parseT(m.t)})
-                        {m.sentiment !== undefined && <span style={{ marginLeft: 8, color: getSentimentColor(m.sentiment) }}>{m.sentiment.toFixed(2)}</span>}
-                        {m.adopted && <Tooltip title={t('replay.chatbox.dialog.adopted')}><ShoppingCartOutlined style={{ marginLeft: 8 }} /></Tooltip>}
+                        {typeof m.sentiment === 'number' && (
+                            <span style={{ marginLeft: 8, color: getSentimentColor(m.sentiment) }}>
+                                {m.sentiment.toFixed(2)}
+                            </span>
+                        )}
+                        {m.adopted && (
+                            <Tooltip title={t('replay.chatbox.dialog.adopted')}>
+                                <ShoppingCartOutlined style={{ marginLeft: 8 }} />
+                            </Tooltip>
+                        )}
                     </div>
                 }
             })}
