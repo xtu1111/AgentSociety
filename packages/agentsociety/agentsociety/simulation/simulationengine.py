@@ -1758,6 +1758,23 @@ class SimulationEngine:
             day, _ = self.environment.get_datetime()
             if day != start_day:
                 break
+        if self.enable_database:
+            sentiments = await self.gather("sentiment", flatten=True)
+            adopted = await self.gather("adopted", flatten=True)
+            avg_sentiment = (
+                float(np.mean([s for s in sentiments if isinstance(s, (int, float))]))
+                if sentiments
+                else 0.0
+            )
+            adoption_rate = (
+                float(np.mean([1 if a else 0 for a in adopted])) if adopted else 0.0
+            )
+            await self._database_writer.log_metric(
+                {
+                    "avg_sentiment": avg_sentiment,
+                    "adoption_rate": adoption_rate,
+                }
+            )
         return logs
 
     async def run(self):
