@@ -57,6 +57,8 @@ class StorageDialog(BaseModel):
     type: int
     speaker: str
     content: str
+    sentiment: Optional[float] = None
+    adopted: Optional[bool] = None
     created_at: datetime
 
 

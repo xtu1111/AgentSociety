@@ -22,6 +22,8 @@ export interface AgentDialog {
     type: 0 | 1 | 2;
     speaker: string;
     content: string;
+    sentiment?: number;
+    adopted?: boolean;
 }
 
 export interface AgentSurvey {
@@ -48,4 +50,10 @@ export interface ApiMetric {
     key: string;
     value: number;
     step: number;
+}
+export interface ExperimentSummary {
+    adoption_rate: number;
+    average_sentiment?: number;
+    average_emotion?: { [key: string]: number };
+    emotion_distribution: { [key: string]: number };
 }

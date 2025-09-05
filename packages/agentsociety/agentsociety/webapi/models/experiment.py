@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Dict, Optional
 
 from pydantic import AwareDatetime, BaseModel
 from sqlalchemy.orm import Mapped, mapped_column
@@ -13,6 +14,7 @@ __all__ = [
     "ExperimentStatus",
     "ApiExperiment",
     "ApiTime",
+    "ApiExperimentSummary",
     "RunningExperiment",
 ]
 
@@ -79,3 +81,12 @@ class ApiTime(BaseModel):
 
     day: int
     t: float
+
+
+class ApiExperimentSummary(BaseModel):
+    """Experiment summary model for API"""
+
+    adoption_rate: float
+    average_sentiment: Optional[float] = None
+    average_emotion: Optional[Dict[str, float]] = None
+    emotion_distribution: Dict[str, int]

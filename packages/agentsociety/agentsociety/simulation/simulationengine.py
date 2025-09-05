@@ -1684,6 +1684,35 @@ class SimulationEngine:
             # ======================
             metrics = await self.environment.get_metrics()
             if self.enable_database:
+
+            # Gather agent-level sentiment and adoption data
+            sentiments = await self.gather("sentiment", flatten=True)
+            sentiment_values = [
+                s for s in sentiments if isinstance(s, (int, float))
+            ]
+            if sentiment_values:
+                avg_sentiment = sum(sentiment_values) / len(sentiment_values)
+                metrics.append(
+                    (
+                        "avg_sentiment",
+                        float(avg_sentiment),
+                        self.environment.get_tick(),
+                    )
+                )
+
+            adopted_list = await self.gather("adopted", flatten=True)
+            adopted_flags = [a for a in adopted_list if isinstance(a, bool)]
+            if adopted_flags:
+                adoption_rate = sum(1 for a in adopted_flags if a) / len(adopted_flags)
+                metrics.append(
+                    (
+                        "adoption_rate",
+                        float(adoption_rate),
+                        self.environment.get_tick(),
+                    )
+                )
+
+            if self.enable_database and metrics:
                 await self._database_writer.log_metric(metrics)
             get_logger().debug(f"({day}-{t}) Finished simulator sync")
             # ======================

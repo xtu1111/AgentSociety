@@ -16,12 +16,16 @@ export default {
             sendFailed: "发送失败："
         },
         dialog: {
-            sendSuccess: "消息已发送，请等待智能体将消息保存到数据库并响应"
+            sendSuccess: "消息已发送，请等待智能体将消息保存到数据库并响应",
+            adopted: "已采纳"
         },
         metrics: {
             noMetrics: "没有可用的指标数据",
             step: "步数",
-            value: "值"
+            value: "值",
+            sentimentAdoption: "情绪与采纳率",
+            avgSentiment: "平均情绪",
+            adoptionRate: "采纳率"
         }
     },
     infoPanel: {
@@ -54,5 +58,14 @@ export default {
             "0.25s": "0.25秒/步",
             "0.1s": "0.1秒/步"
         }
+    },
+    summary: {
+        title: "结果总结",
+        adoptionRate: "总体采纳率",
+        averageSentiment: "平均情绪",
+        averageEmotion: "平均情绪分数",
+        emotionDistribution: "情绪分布",
+        exportJson: "导出 JSON",
+        exportCsv: "导出 CSV"
     }
-}; 
+};

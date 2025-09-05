@@ -694,6 +694,8 @@ class DatabaseWriter:
                             "type": row.type,
                             "speaker": row.speaker,
                             "content": row.content,
+                            "sentiment": row.sentiment,
+                            "adopted": row.adopted,
                             "created_at": row.created_at,
                         }
                     )

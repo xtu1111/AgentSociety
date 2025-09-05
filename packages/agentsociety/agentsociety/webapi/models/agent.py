@@ -116,6 +116,10 @@ class ApiAgentDialog(BaseModel):
     """Speaker"""
     content: str
     """Content"""
+    sentiment: Optional[float] = None
+    """Sentiment score"""
+    adopted: Optional[bool] = None
+    """Adoption status"""
     created_at: AwareDatetime
     """Created time"""
 

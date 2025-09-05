@@ -1,5 +1,5 @@
-import { Button, Col, Divider, Flex, GetProp, message, Modal, Row, Select, Tabs } from 'antd';
-import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, SmileOutlined, UpOutlined, UserOutlined, LineChartOutlined } from '@ant-design/icons';
+import { Button, Col, Divider, Flex, GetProp, message, Modal, Row, Select, Tabs, Tooltip } from 'antd';
+import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, SmileOutlined, UpOutlined, UserOutlined, LineChartOutlined, ShoppingCartOutlined } from '@ant-design/icons';
 import { AgentDialog, AgentProfile, AgentSurvey, ApiMetric } from './components/type';
 import { Bubble, Sender } from '@ant-design/x';
 import { parseT } from '../../components/util';
@@ -30,6 +30,25 @@ const roles: GetProp<typeof Bubble.List, 'roles'> = {
         placement: 'end',
         avatar: { icon: <UserOutlined />, style: { background: '#87d068' } },
     },
+};
+
+const getSentimentColor = (sentiment: number) => {
+    const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+    const grey = { r: 160, g: 160, b: 160 };
+    const red = { r: 255, g: 77, b: 79 };
+    const green = { r: 82, g: 196, b: 26 };
+    if (sentiment < 0) {
+        const t = clamp(sentiment + 1, 0, 1);
+        const r = red.r + (grey.r - red.r) * t;
+        const g = red.g + (grey.g - red.g) * t;
+        const b = red.b + (grey.b - red.b) * t;
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+    const t = clamp(sentiment, 0, 1);
+    const r = grey.r + (green.r - grey.r) * t;
+    const g = grey.g + (green.g - grey.g) * t;
+    const b = grey.b + (green.b - grey.b) * t;
+    return `rgb(${r}, ${g}, ${b})`;
 };
 
 export const RightPanel = observer(() => {
@@ -127,6 +146,8 @@ export const RightPanel = observer(() => {
                     content: content,
                     header: <div>
                         {name} ({t('replay.day', { day: m.day })} {parseT(m.t)})
+                        {m.sentiment !== undefined && <span style={{ marginLeft: 8, color: getSentimentColor(m.sentiment) }}>{m.sentiment.toFixed(2)}</span>}
+                        {m.adopted && <Tooltip title={t('replay.chatbox.dialog.adopted')}><ShoppingCartOutlined style={{ marginLeft: 8 }} /></Tooltip>}
                     </div>
                 }
             })}
@@ -246,12 +267,78 @@ export const RightPanel = observer(() => {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
 
+        const sentiment = metrics.get('avg_sentiment');
+        const adoption = metrics.get('adoption_rate');
+        const others = Array.from(metrics.entries()).filter(
+            ([key]) => key !== 'avg_sentiment' && key !== 'adoption_rate'
+        );
+
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
-                {Array.from(metrics.entries()).map(([key, values]) => {
+                {sentiment && adoption && (
+                    <div key="sentiment-adoption">
+                        <Plot
+                            data={[
+                                {
+                                    x: sentiment.map(v => v.step),
+                                    y: sentiment.map(v => v.value),
+                                    type: 'scatter',
+                                    mode: 'lines+markers',
+                                    name: t('replay.chatbox.metrics.avgSentiment'),
+                                    line: { width: 2, color: '#1890ff' },
+                                    marker: { size: 6, color: '#1890ff' }
+                                },
+                                {
+                                    x: adoption.map(v => v.step),
+                                    y: adoption.map(v => v.value),
+                                    type: 'scatter',
+                                    mode: 'lines+markers',
+                                    name: t('replay.chatbox.metrics.adoptionRate'),
+                                    line: { width: 2, color: '#52c41a' },
+                                    marker: { size: 6, color: '#52c41a' }
+                                }
+                            ]}
+                            layout={{
+                                title: {
+                                    text: t('replay.chatbox.metrics.sentimentAdoption'),
+                                    font: { size: 16, family: 'Arial' }
+                                },
+                                autosize: true,
+                                width: null,
+                                height: 200,
+                                margin: { l: 30, r: 10, t: 30, b: 30 },
+                                xaxis: {
+                                    title: {
+                                        text: t('replay.chatbox.metrics.step'),
+                                        font: { size: 12 }
+                                    },
+                                    showgrid: true,
+                                    gridcolor: '#f0f0f0'
+                                },
+                                yaxis: {
+                                    title: {
+                                        text: t('replay.chatbox.metrics.value'),
+                                        font: { size: 12 }
+                                    },
+                                    showgrid: true,
+                                    gridcolor: '#f0f0f0'
+                                },
+                                paper_bgcolor: 'rgba(0,0,0,0)',
+                                plot_bgcolor: 'rgba(0,0,0,0)'
+                            }}
+                            config={{
+                                responsive: true,
+                                displaylogo: false,
+                                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+                            }}
+                            style={{ width: '100%', height: '100%' }}
+                        />
+                    </div>
+                )}
+
+                {others.map(([key, values]) => {
                     const x = values.map(v => v.step);
                     const y = values.map(v => v.value);
-
                     return (
                         <div key={key}>
                             <Plot
@@ -262,39 +349,23 @@ export const RightPanel = observer(() => {
                                         type: 'scatter',
                                         mode: 'lines+markers',
                                         name: key,
-                                        line: {
-                                            width: 2,
-                                            color: '#1890ff'
-                                        },
-                                        marker: {
-                                            size: 6,
-                                            color: '#1890ff'
-                                        }
+                                        line: { width: 2, color: '#1890ff' },
+                                        marker: { size: 6, color: '#1890ff' }
                                     }
                                 ]}
                                 layout={{
                                     title: {
                                         text: key,
-                                        font: {
-                                            size: 16,
-                                            family: 'Arial'
-                                        }
+                                        font: { size: 16, family: 'Arial' }
                                     },
                                     autosize: true,
                                     width: null,
                                     height: 200,
-                                    margin: {
-                                        l: 30,
-                                        r: 10,
-                                        t: 30,
-                                        b: 30
-                                    },
+                                    margin: { l: 30, r: 10, t: 30, b: 30 },
                                     xaxis: {
                                         title: {
                                             text: t('replay.chatbox.metrics.step'),
-                                            font: {
-                                                size: 12
-                                            }
+                                            font: { size: 12 }
                                         },
                                         showgrid: true,
                                         gridcolor: '#f0f0f0'
@@ -302,9 +373,7 @@ export const RightPanel = observer(() => {
                                     yaxis: {
                                         title: {
                                             text: t('replay.chatbox.metrics.value'),
-                                            font: {
-                                                size: 12
-                                            }
+                                            font: { size: 12 }
                                         },
                                         showgrid: true,
                                         gridcolor: '#f0f0f0'
@@ -317,10 +386,7 @@ export const RightPanel = observer(() => {
                                     displaylogo: false,
                                     modeBarButtonsToRemove: ['lasso2d', 'select2d']
                                 }}
-                                style={{
-                                    width: '100%',
-                                    height: '100%'
-                                }}
+                                style={{ width: '100%', height: '100%' }}
                             />
                         </div>
                     );

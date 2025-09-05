@@ -272,6 +272,13 @@ class MarketingAgent(CitizenAgentBase):
         await self.memory.status.update("adopted", new_adopted)
         await self.memory.status.update("attitude", attitude)
         await self.memory.status.update("current_need", need)
+        if self.database_writer is not None:
+            await self.database_writer.log_metric(
+                [
+                    (f"sentiment:{self.id}", float(effective_sentiment), exposure),
+                    (f"adopted:{self.id}", 1.0 if new_adopted else 0.0, exposure),
+                ]
+            )
         if share:
             await self._share_message(say, tags or [], sender_id, suggested)
         return say

@@ -224,3 +224,16 @@ AgentSociety中的智能体设计分为`Block-Agent`两个层次结构，`Agent`
 - 向智能体发送调查问卷并收集他们的回答
 
 ![exp-status](../_static/01-exp-status.jpg)
+
+#### 结果总结与导出
+
+在实验回放页面中，右上角的“结果总结”按钮可以展示总体采纳率、平均情绪以及情绪分布等关键指标，并提供导出为 JSON 或 CSV 的选项。导出的文件可直接用于后续的数据分析或撰写报告。
+
+例如，使用 Python 的 Pandas 库可以读取导出的 JSON 文件并进行处理：
+
+```python
+import pandas as pd
+
+summary = pd.read_json("summary_<experiment_id>.json")
+print(summary)
+```

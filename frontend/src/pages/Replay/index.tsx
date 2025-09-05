@@ -12,6 +12,7 @@ import { useParams } from "react-router-dom";
 import { store, StoreContext } from "./store";
 import { observer } from 'mobx-react-lite'
 import TimelinePlayer from "./TimelinePlayer";
+import ResultSummary from "./ResultSummary";
 
 // const IconFont = createFromIconfontCN({
 //     scriptUrl: "//at.alicdn.com/t/font_3397267_y3yy0ckhrj.js",
@@ -54,6 +55,7 @@ const Replay: React.FC = observer(() => {
             <div className="agentsociety-right">
                 <RightPanel />
             </div>
+            <ResultSummary />
         </>
     );
 });

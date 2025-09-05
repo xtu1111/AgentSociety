@@ -10,7 +10,7 @@ from typing import List, cast, Dict, Tuple
 import yaml
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import ApiResponseWrapper
 from ..models.agent import (
@@ -20,7 +20,13 @@ from ..models.agent import (
     agent_survey,
     global_prompt,
 )
-from ..models.experiment import ApiExperiment, ApiTime, Experiment, ExperimentStatus
+from ..models.experiment import (
+    ApiExperiment,
+    ApiTime,
+    Experiment,
+    ExperimentStatus,
+    ApiExperimentSummary,
+)
 from ..models.metric import ApiMetric, metric
 from .const import DEMO_USER_ID
 from .timezone import ensure_timezone_aware
@@ -148,6 +154,83 @@ async def get_experiment_status_timeline_by_id(
         timeline = [ApiTime(day=int(row[0]), t=float(row[1])) for row in results]
 
         return ApiResponseWrapper(data=timeline)
+
+
+@router.get("/experiments/{exp_id}/summary")
+async def get_experiment_summary(
+    request: Request,
+    exp_id: uuid.UUID,
+) -> ApiResponseWrapper[ApiExperimentSummary]:
+    """Get experiment summary including adoption rate and emotion stats"""
+
+    async with request.app.state.get_db() as db:
+        db = cast(AsyncSession, db)
+        experiment = await _find_started_experiment_by_id(request, db, exp_id)
+
+        table_name = experiment.agent_status_tablename
+        status_table, _ = agent_status(table_name)
+
+        subquery = (
+            select(
+                status_table.c.id,
+                status_table.c.status,
+                func.row_number()
+                .over(
+                    partition_by=status_table.c.id,
+                    order_by=(status_table.c.day.desc(), status_table.c.t.desc()),
+                )
+                .label("rn"),
+            )
+        ).subquery()
+
+        stmt = select(subquery.c.id, subquery.c.status).where(subquery.c.rn == 1)
+        rows = (await db.execute(stmt)).all()
+
+        total = len(rows)
+        adopted = 0
+        sentiments: List[float] = []
+        emotion_distribution: Dict[str, int] = defaultdict(int)
+        emotion_sums: Dict[str, float] = defaultdict(float)
+
+        for row in rows:
+            status_data = row.status
+            if isinstance(status_data, str):
+                try:
+                    status_data = json.loads(status_data)
+                except Exception:
+                    status_data = {}
+            if not isinstance(status_data, dict):
+                status_data = {}
+
+            if status_data.get("adopted"):
+                adopted += 1
+            if "sentiment" in status_data:
+                try:
+                    sentiments.append(float(status_data["sentiment"]))
+                except Exception:
+                    pass
+            if "emotion_types" in status_data:
+                emotion_distribution[str(status_data["emotion_types"])] += 1
+            if isinstance(status_data.get("emotion"), dict):
+                for k, v in status_data["emotion"].items():
+                    try:
+                        emotion_sums[k] += float(v)
+                    except Exception:
+                        pass
+
+        adoption_rate = adopted / total if total else 0.0
+        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else None
+        avg_emotion = (
+            {k: v / total for k, v in emotion_sums.items()} if total else {}
+        )
+
+        summary = ApiExperimentSummary(
+            adoption_rate=adoption_rate,
+            average_sentiment=avg_sentiment,
+            average_emotion=avg_emotion,
+            emotion_distribution=dict(emotion_distribution),
+        )
+        return ApiResponseWrapper(data=summary)
 
 
 @router.delete("/experiments/{exp_id}", status_code=status.HTTP_200_OK)

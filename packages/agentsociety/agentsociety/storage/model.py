@@ -87,8 +87,20 @@ def agent_dialog(table_name: str):
         Column("type", Integer),
         Column("speaker", String),
         Column("content", String),
+        Column("sentiment", Float, nullable=True),
+        Column("adopted", Boolean, nullable=True),
         Column("created_at", TIMESTAMP(timezone=True)),
-    ), ["id", "day", "t", "type", "speaker", "content", "created_at"]
+    ), [
+        "id",
+        "day",
+        "t",
+        "type",
+        "speaker",
+        "content",
+        "sentiment",
+        "adopted",
+        "created_at",
+    ]
 
 
 def global_prompt(table_name: str):

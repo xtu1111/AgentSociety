@@ -12,4 +12,5 @@
 03-map
 04-agent
 05-data-analysis
+06-metrics
 ```

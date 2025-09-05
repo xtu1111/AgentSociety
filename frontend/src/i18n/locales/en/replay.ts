@@ -16,12 +16,16 @@ export default {
             sendFailed: "Failed to send:"
         },
         dialog: {
-            sendSuccess: "Message sent, you should wait for the agent to save the message into database and respond"
+            sendSuccess: "Message sent, you should wait for the agent to save the message into database and respond",
+            adopted: "Adopted"
         },
         metrics: {
             noMetrics: "No metrics data available",
             step: "Step",
-            value: "Value"
+            value: "Value",
+            sentimentAdoption: "Sentiment & Adoption",
+            avgSentiment: "Average Sentiment",
+            adoptionRate: "Adoption Rate"
         }
     },
     infoPanel: {
@@ -54,5 +58,14 @@ export default {
             "0.25s": "0.25s/step",
             "0.1s": "0.1s/step"
         }
+    },
+    summary: {
+        title: "Result Summary",
+        adoptionRate: "Adoption Rate",
+        averageSentiment: "Average Sentiment",
+        averageEmotion: "Average Emotion",
+        emotionDistribution: "Emotion Distribution",
+        exportJson: "Export JSON",
+        exportCsv: "Export CSV"
     }
-}; 
+};
