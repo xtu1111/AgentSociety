@@ -309,13 +309,16 @@ export const RightPanel = observer(() => {
         // `null` or `undefined` values that would trigger `toFixed` errors.
         const sanitizeMetric = (arr: ApiMetric[] = []): ApiMetric[] =>
             arr
-                .filter(
-                    v =>
+                .filter(v => {
+                    const stepNum = Number(v.step);
+                    const valueNum = Number(v.value);
+                    return (
                         v.step != null &&
                         v.value != null &&
-                        Number.isFinite(Number(v.step)) &&
-                        Number.isFinite(Number(v.value))
-                )
+                        Number.isFinite(stepNum) &&
+                        Number.isFinite(valueNum)
+                    );
+                })
                 .map(v => ({ step: Number(v.step), value: Number(v.value) }));
 
         const entries = Array.from(metrics.entries())
