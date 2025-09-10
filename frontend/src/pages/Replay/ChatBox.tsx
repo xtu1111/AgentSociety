@@ -320,13 +320,18 @@ export const RightPanel = observer(() => {
                 )
                 .map(v => ({ step: Number(v.step), value: Number(v.value) }));
 
+        const entries = Array.from(metrics.entries())
+            .map(([key, values]) => [key, sanitizeMetric(values)] as const)
+            .filter(([, arr]) => arr.length > 0);
+
+        if (entries.length === 0) {
+            return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
+        }
+
+
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
-                {Array.from(metrics.entries()).map(([key, values]) => {
-                    const valid = sanitizeMetric(values);
-                    if (valid.length === 0) {
-                        return null;
-                    }
+                {entries.map(([key, valid]) => {
                     const x = valid.map(v => v.step);
                     const y = valid.map(v => v.value);
 
@@ -335,19 +340,13 @@ export const RightPanel = observer(() => {
                             <Plot
                                 data={[
                                     {
-                                        x: x,
-                                        y: y,
+                                        x,
+                                        y,
                                         type: 'scatter',
                                         mode: 'lines+markers',
                                         name: key,
-                                        line: {
-                                            width: 2,
-                                            color: '#1890ff'
-                                        },
-                                        marker: {
-                                            size: 6,
-                                            color: '#1890ff'
-                                        }
+                                        line: { width: 2, color: '#1890ff' },
+                                        marker: { size: 6, color: '#1890ff' }
                                     }
                                 ]}
                                 layout={{
