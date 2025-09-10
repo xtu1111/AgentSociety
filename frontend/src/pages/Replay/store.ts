@@ -267,8 +267,8 @@ export class ReplayStore {
                             const valid = Array.isArray(arr)
                                 ? arr
                                     .filter((v: any) =>
-                                        v.step !== undefined && v.step !== null &&
-                                        v.value !== undefined && v.value !== null &&
+                                        v.step != null &&
+                                        v.value != null &&
                                         Number.isFinite(Number(v.step)) &&
                                         Number.isFinite(Number(v.value))
                                     )

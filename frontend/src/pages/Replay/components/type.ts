@@ -47,9 +47,8 @@ export interface LngLat {
 }
 
 export interface ApiMetric {
-    key: string;
-    value: number;
     step: number;
+    value: number;
 }
 export interface ExperimentSummary {
     adoption_rate: number;

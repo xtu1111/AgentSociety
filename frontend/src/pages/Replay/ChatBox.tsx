@@ -307,12 +307,14 @@ export const RightPanel = observer(() => {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
 
-        const sanitizeMetric = (arr: ApiMetric[] = []) =>
+        // Filter out any non-numeric metric entries so Plotly never receives
+        // `null` or `undefined` values that would trigger `toFixed` errors.
+        const sanitizeMetric = (arr: ApiMetric[] = []): ApiMetric[] =>
             arr
                 .filter(
                     v =>
-                        v.step !== undefined && v.step !== null &&
-                        v.value !== undefined && v.value !== null &&
+                        v.step != null &&
+                        v.value != null &&
                         Number.isFinite(Number(v.step)) &&
                         Number.isFinite(Number(v.value))
                 )
