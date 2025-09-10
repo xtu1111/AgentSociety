@@ -604,9 +604,22 @@ class DatabaseWriter:
                     stmt = stmt.offset(offset)
                 
                 result = await session.execute(stmt)
-                rows = result.fetchall()
-                
-                return [dict(row._mapping) for row in rows]
+                rows = result.fetchall()                
+
+                valid: list[dict[str, Any]] = []
+                for row in rows:
+                    r = dict(row._mapping)
+                    try:
+                        v = float(r.get("value"))
+                        s = int(r.get("step"))
+                        if not math.isfinite(v) or not math.isfinite(s):
+                            continue
+                        r["value"], r["step"] = v, s
+                        valid.append(r)
+                    except (TypeError, ValueError):
+                        continue
+
+                return valid
                 
             except Exception as e:
                 get_logger().error(f"Error reading metrics from {self._config.db_type}: {e}")
