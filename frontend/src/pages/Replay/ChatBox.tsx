@@ -174,10 +174,12 @@ export const RightPanel = observer(() => {
                     header: <div>
                         {name} ({t('replay.day', { day: m.day })} {parseT(m.t)})
                         {(() => {
-                            const val = m.sentiment;
-                            return val !== null && typeof val === 'number' && Number.isFinite(val) ? (
-                                <span style={{ marginLeft: 8, color: getSentimentColor(val) }}>
-                                    {val.toFixed(2)}
+                            const valNum = typeof m.sentiment === 'number'
+                                ? m.sentiment
+                                : Number(m.sentiment);
+                            return Number.isFinite(valNum) ? (
+                                <span style={{ marginLeft: 8, color: getSentimentColor(valNum) }}>
+                                    {valNum.toFixed(2)}
                                 </span>
                             ) : null;
                         })()}
