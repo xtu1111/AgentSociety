@@ -280,8 +280,8 @@ export const RightPanel = observer(() => {
                 value={selectedSurveyID}
                 onChange={handleSelectChange}
                 filterOption={(input, option) =>
-                (option?.label?.toLowerCase()?.includes(input.toLowerCase()) ||
-                    option?.value?.toLowerCase()?.includes(input.toLowerCase()))
+                    (option?.label?.toLowerCase()?.includes(input.toLowerCase()) ||
+                        option?.value?.toLowerCase()?.includes(input.toLowerCase()))
                 }
                 options={selectOptions}
                 optionRender={(o) => <span>{o.label} ({o.value})</span>}
@@ -297,84 +297,84 @@ export const RightPanel = observer(() => {
         </Row>
     </>);
 
-const renderMetrics = () => {
-    const metrics = store.metrics;
-    if (metrics.size === 0) {
-        return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
-    }
+    const renderMetrics = () => {
+        const metrics = store.metrics;
+        if (metrics.size === 0) {
+            return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
+        }
 
-    // Filter out any non-numeric metric entries so Plotly never receives
-    // `null` or `undefined` values that would trigger `toFixed` errors.
-    const sanitizeMetric = (arr: ApiMetric[] = []): ApiMetric[] =>
-        arr
-            .filter(v => {
-                const stepNum = Number(v.step);
-                const valueNum = Number(v.value);
-                return (
-                    v.step != null &&
-                    v.value != null &&
-                    Number.isFinite(stepNum) &&
-                    Number.isFinite(valueNum)
-                );
-            })
-            .map(v => ({ step: Number(v.step), value: Number(v.value) }));
+        // Filter out any non-numeric metric entries so Plotly never receives
+        // `null` or `undefined` values that would trigger `toFixed` errors.
+        const sanitizeMetric = (arr: ApiMetric[] = []): ApiMetric[] =>
+            arr
+                .filter(v => {
+                    const stepNum = Number(v.step);
+                    const valueNum = Number(v.value);
+                    return (
+                        v.step != null &&
+                        v.value != null &&
+                        Number.isFinite(stepNum) &&
+                        Number.isFinite(valueNum)
+                    );
+                })
+                .map(v => ({ step: Number(v.step), value: Number(v.value) }));
 
-    const entries = Array.from(metrics.entries())
-        .map(([key, values]) => [key, sanitizeMetric(values)] as const)
-        .filter(([, arr]) => arr.length > 0);
+        const entries = Array.from(metrics.entries())
+            .map(([key, values]) => [key, sanitizeMetric(values)] as const)
+            .filter(([, arr]) => arr.length > 0);
 
-    if (entries.length === 0) {
-        return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
-    }
+        if (entries.length === 0) {
+            return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
+        }
 
-    return (
-        <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
-            {entries.map(([key, valid]) => {
-                const x = valid.map(v => v.step);
-                const y = valid.map(v => v.value);
+        return (
+            <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
+                {entries.map(([key, valid]) => {
+                    const x = valid.map(v => v.step);
+                    const y = valid.map(v => v.value);
 
-                return (
-                    <div key={key}>
-                        <Plot
-                            data={[
-                                {
-                                    x,
-                                    y,
-                                    type: 'scatter',
-                                    mode: 'lines+markers',
-                                    name: key,
-                                    line: { width: 2, color: '#1890ff' },
-                                    marker: { size: 6, color: '#1890ff' }
-                                }
-                            ]}
-                            layout={{
-                                title: {
-                                    text: key,
-                                    font: { size: 16, family: 'Arial' }
-                                },
-                                autosize: true,
-                                height: 200,
-                                margin: { l: 30, r: 10, t: 30, b: 30 },
-                                xaxis: {
+                    return (
+                        <div key={key}>
+                            <Plot
+                                data={[
+                                    {
+                                        x,
+                                        y,
+                                        type: 'scatter',
+                                        mode: 'lines+markers',
+                                        name: key,
+                                        line: { width: 2, color: '#1890ff' },
+                                        marker: { size: 6, color: '#1890ff' }
+                                    }
+                                ]}
+                                layout={{
                                     title: {
-                                        text: t('replay.chatbox.metrics.step'),
-                                        font: { size: 12 }
+                                        text: key,
+                                        font: { size: 16, family: 'Arial' }
                                     },
-                                    showgrid: true,
-                                    gridcolor: '#f0f0f0'
-                                },
-                                yaxis: {
-                                    title: {
-                                        text: t('replay.chatbox.metrics.value'),
-                                        font: { size: 12 }
+                                    width: 600,
+                                    height: 200,
+                                    margin: { l: 30, r: 10, t: 30, b: 30 },
+                                    xaxis: {
+                                        title: {
+                                            text: t('replay.chatbox.metrics.step'),
+                                            font: { size: 12 }
+                                        },
+                                        showgrid: true,
+                                        gridcolor: '#f0f0f0'
                                     },
-                                    showgrid: true,
-                                    gridcolor: '#f0f0f0'
-                                },
-                                paper_bgcolor: 'rgba(0,0,0,0)',
-                                plot_bgcolor: 'rgba(0,0,0,0)'
-                            }}
-                            config={{
+                                    yaxis: {
+                                        title: {
+                                            text: t('replay.chatbox.metrics.value'),
+                                            font: { size: 12 }
+                                        },
+                                        showgrid: true,
+                                        gridcolor: '#f0f0f0'
+                                    },
+                                    paper_bgcolor: 'rgba(0,0,0,0)',
+                                    plot_bgcolor: 'rgba(0,0,0,0)'
+                                }}
+                                config={{
                                     responsive: true,
                                     displaylogo: false,
                                     modeBarButtonsToRemove: ['lasso2d', 'select2d']
