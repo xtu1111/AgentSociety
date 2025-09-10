@@ -79,6 +79,7 @@ async def _consult_llm(
             "content": (
                 "You are a person chatting with friends about an incoming piece of marketing or news. "
                 "Speak casually in first person and mention if you've heard similar news before. "
+                "Speak in Japanese."
                 "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, \"share\": bool, "
                 "\"suggested_targets\": [string], \"emotion\": string, \"thought\": string, \"attitude\": string, \"current_need\": string}"
             ),

@@ -307,78 +307,25 @@ export const RightPanel = observer(() => {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
 
-        const sentiment = metrics.get('avg_sentiment');
-        const adoption = metrics.get('adoption_rate');
-        const others = Array.from(metrics.entries()).filter(
-            ([key]) => key !== 'avg_sentiment' && key !== 'adoption_rate'
-        );
+        const sanitizeMetric = (arr: ApiMetric[] = []) =>
+            arr
+                .filter(
+                    v =>
+                        Number.isFinite(Number(v.step)) &&
+                        Number.isFinite(Number(v.value))
+                )
+                .map(v => ({ step: Number(v.step), value: Number(v.value) }));
 
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
-                {sentiment && adoption && (
-                    <div key="sentiment-adoption">
-                        <Plot
-                            data={[
-                                {
-                                    x: sentiment.map(v => v.step),
-                                    y: sentiment.map(v => v.value),
-                                    type: 'scatter',
-                                    mode: 'lines+markers',
-                                    name: t('replay.chatbox.metrics.avgSentiment'),
-                                    line: { width: 2, color: '#1890ff' },
-                                    marker: { size: 6, color: '#1890ff' }
-                                },
-                                {
-                                    x: adoption.map(v => v.step),
-                                    y: adoption.map(v => v.value),
-                                    type: 'scatter',
-                                    mode: 'lines+markers',
-                                    name: t('replay.chatbox.metrics.adoptionRate'),
-                                    line: { width: 2, color: '#52c41a' },
-                                    marker: { size: 6, color: '#52c41a' }
-                                }
-                            ]}
-                            layout={{
-                                title: {
-                                    text: t('replay.chatbox.metrics.sentimentAdoption'),
-                                    font: { size: 16, family: 'Arial' }
-                                },
-                                autosize: true,
-                                width: null,
-                                height: 200,
-                                margin: { l: 30, r: 10, t: 30, b: 30 },
-                                xaxis: {
-                                    title: {
-                                        text: t('replay.chatbox.metrics.step'),
-                                        font: { size: 12 }
-                                    },
-                                    showgrid: true,
-                                    gridcolor: '#f0f0f0'
-                                },
-                                yaxis: {
-                                    title: {
-                                        text: t('replay.chatbox.metrics.value'),
-                                        font: { size: 12 }
-                                    },
-                                    showgrid: true,
-                                    gridcolor: '#f0f0f0'
-                                },
-                                paper_bgcolor: 'rgba(0,0,0,0)',
-                                plot_bgcolor: 'rgba(0,0,0,0)'
-                            }}
-                            config={{
-                                responsive: true,
-                                displaylogo: false,
-                                modeBarButtonsToRemove: ['lasso2d', 'select2d']
-                            }}
-                            style={{ width: '100%', height: '100%' }}
-                        />
-                    </div>
-                )}
+                {Array.from(metrics.entries()).map(([key, values]) => {
+                    const valid = sanitizeMetric(values);
+                    if (valid.length === 0) {
+                        return null;
+                    }
+                    const x = valid.map(v => v.step);
+                    const y = valid.map(v => v.value);
 
-                {others.map(([key, values]) => {
-                    const x = values.map(v => v.step);
-                    const y = values.map(v => v.value);
                     return (
                         <div key={key}>
                             <Plot
@@ -389,8 +336,14 @@ export const RightPanel = observer(() => {
                                         type: 'scatter',
                                         mode: 'lines+markers',
                                         name: key,
-                                        line: { width: 2, color: '#1890ff' },
-                                        marker: { size: 6, color: '#1890ff' }
+                                        line: {
+                                            width: 2,
+                                            color: '#1890ff'
+                                        },
+                                        marker: {
+                                            size: 6,
+                                            color: '#1890ff'
+                                        }
                                     }
                                 ]}
                                 layout={{
