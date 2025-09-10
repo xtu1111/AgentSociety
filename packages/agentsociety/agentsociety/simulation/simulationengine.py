@@ -1,7 +1,6 @@
 """
 A clear version of the simulation.
 """
-# ruff: noqa: E402
 
 import asyncio
 import inspect
@@ -17,6 +16,7 @@ from typing import Any, Callable, Literal, Optional, Union, cast
 import yaml
 import random
 from fastembed import SparseTextEmbedding
+import math
 
 
 def _parse_hhmm(time_str: str) -> int:
@@ -1683,6 +1683,20 @@ class SimulationEngine:
             # Log metrics from environment
             # ======================
             metrics = await self.environment.get_metrics()
+            # sanitize metrics to ensure numeric step/value
+            cleaned_metrics: list[tuple[str, float, int]] = []
+            for key, value, step in metrics:
+                try:
+                    if value is None or step is None:
+                        continue
+                    v = float(value)
+                    s = int(step)
+                    if math.isfinite(v) and math.isfinite(s):
+                        cleaned_metrics.append((key, v, s))
+                except (TypeError, ValueError):
+                    continue
+            metrics = cleaned_metrics
+            
             if self.enable_database:
                 # Gather agent-level sentiment and adoption data
                 sentiments = await self.gather("sentiment", flatten=True)

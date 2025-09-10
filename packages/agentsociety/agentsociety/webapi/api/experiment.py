@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 import zipfile
+import math
 from typing import List, cast, Dict, Tuple
 
 import yaml
@@ -343,15 +344,21 @@ async def get_experiment_metrics_by_id(
     if not rows:
         return False, {}
 
-    # Aggregate metrics by key
+    # Aggregate metrics by key, skipping invalid values
     metrics_by_key: Dict[str, List[ApiMetric]] = defaultdict(list)
     for row in rows:
-        api_metric = ApiMetric(
-            key=row[0],
-            value=float(row[1]),
-            step=int(row[2]),
-        )
-        metrics_by_key[row[0]].append(api_metric)
+        key, value, step = row[0], row[1], row[2]
+        try:
+            if value is None or step is None:
+                continue
+            v = float(value)
+            s = int(step)
+            if not math.isfinite(v) or not math.isfinite(s):
+                continue
+        except (TypeError, ValueError):
+            continue
+        api_metric = ApiMetric(key=key, value=v, step=s)
+        metrics_by_key[key].append(api_metric)
 
     return True, metrics_by_key
 
