@@ -884,7 +884,7 @@ class DatabaseWriter:
             metrics: List of tuples (key, value, step)
         """
         # Filter out invalid metrics (None/NaN)
-        metrics = [
+        filtered = [
             (k, v, s)
             for k, v, s in metrics
             if v is not None
@@ -895,7 +895,7 @@ class DatabaseWriter:
             and not math.isnan(s)
         ]
 
-        if len(metrics) == 0:
+        if not filtered:
             return
         table_obj = self._tables["metric"]["table"]
         insert_func = self._get_insert_func()
