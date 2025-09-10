@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 import json_repair
@@ -21,6 +22,7 @@ from agentsociety.agent.agent_base import AgentToolbox
 from agentsociety.cityagent.blocks.utils import clean_json_response
 from agentsociety.memory import Memory
 from agentsociety.message import Message
+from agentsociety.storage.type import StorageDialog, StorageDialogType
 
 RNG = np.random.default_rng(42)
 
@@ -328,7 +330,20 @@ class MarketingAgent(CitizenAgentBase):
         if key in self.processed_msgs:
             return ""
         self.processed_msgs.add(key)
-        content = str(raw)
+        content = _extract_text(str(raw))
+
+        if self.database_writer is not None:
+            storage_dialog = StorageDialog(
+                id=self.id,
+                day=message.day,
+                t=message.t,
+                type=StorageDialogType.Talk,
+                speaker=str(sender_id) if sender_id is not None else "",
+                content=content,
+                created_at=datetime.now(timezone.utc),
+            )
+            await self.database_writer.write_dialogs([storage_dialog])
+
         return await self._handle_message(content, sender_id, [])
 
     async def react_to_intervention(self, intervention_message: str):

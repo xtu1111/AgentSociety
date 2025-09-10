@@ -173,11 +173,14 @@ export const RightPanel = observer(() => {
                     content: content,
                     header: <div>
                         {name} ({t('replay.day', { day: m.day })} {parseT(m.t)})
-                        {typeof m.sentiment === 'number' && (
-                            <span style={{ marginLeft: 8, color: getSentimentColor(m.sentiment) }}>
-                                {m.sentiment.toFixed(2)}
-                            </span>
-                        )}
+                        {(() => {
+                            const val = m.sentiment;
+                            return val !== null && typeof val === 'number' && Number.isFinite(val) ? (
+                                <span style={{ marginLeft: 8, color: getSentimentColor(val) }}>
+                                    {val.toFixed(2)}
+                                </span>
+                            ) : null;
+                        })()}
                         {m.adopted && (
                             <Tooltip title={t('replay.chatbox.dialog.adopted')}>
                                 <ShoppingCartOutlined style={{ marginLeft: 8 }} />

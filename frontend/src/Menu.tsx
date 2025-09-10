@@ -89,7 +89,8 @@ const RootMenu = ({ selectedKey, style }: {
                 marginLeft: 'auto',
                 display: 'flex',
                 alignItems: 'center',
-                minWidth: '320px',
+                gap: 8,
+                minWidth: '400px',
                 justifyContent: 'flex-end'
             }}>
                 <Button
