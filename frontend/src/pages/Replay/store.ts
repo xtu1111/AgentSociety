@@ -261,11 +261,28 @@ export class ReplayStore {
             const res = await fetchCustom(`/api/experiments/${this.expID}/metrics`)
             const data = await res.json()
             runInAction(() => {
-                // Handle null or undefined data.data
                 if (data.data && typeof data.data === 'object') {
-                    this._metrics = new Map(Object.entries(data.data))
+                    const cleaned = Object.entries(data.data)
+                        .map(([key, arr]: [string, any]) => {
+                            const valid = Array.isArray(arr)
+                                ? arr
+                                    .filter((v: any) =>
+                                        v.step !== undefined && v.step !== null &&
+                                        v.value !== undefined && v.value !== null &&
+                                        Number.isFinite(Number(v.step)) &&
+                                        Number.isFinite(Number(v.value))
+                                    )
+                                    .map((v: any) => ({
+                                        step: Number(v.step),
+                                        value: Number(v.value)
+                                    }))
+                                : [];
+                            return [key, valid];
+                        })
+                        .filter(([, arr]) => (arr as any[]).length > 0);
+                    this._metrics = new Map(cleaned as any);
                 } else {
-                    this._metrics = new Map()
+                    this._metrics = new Map();
                 }
             })
         } catch (err) {

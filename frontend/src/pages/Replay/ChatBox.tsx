@@ -311,6 +311,8 @@ export const RightPanel = observer(() => {
             arr
                 .filter(
                     v =>
+                        v.step !== undefined && v.step !== null &&
+                        v.value !== undefined && v.value !== null &&
                         Number.isFinite(Number(v.step)) &&
                         Number.isFinite(Number(v.value))
                 )
