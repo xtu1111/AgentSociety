@@ -114,7 +114,6 @@ export const RightPanel = observer(() => {
 
     // 提交操作
     const handleSelectSubmit = async () => {
-        console.log('Selected UUID:', selectedSurveyID);
         // 进行其他操作
         const res = await fetchCustom(`/api/experiments/${store.expID}/agents/${agent?.id}/survey`, {
             method: 'POST',
@@ -223,7 +222,6 @@ export const RightPanel = observer(() => {
             roles={roles}
             className='bubble-input'
             items={agentSurveys.map((s, i) => {
-                console.log(store.id2surveys, s.survey_id);
                 const survey = store.id2surveys.get(s.survey_id);
                 if (survey === undefined) {
                     const results = [{
