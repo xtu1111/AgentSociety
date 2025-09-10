@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional, Dict, List, Any
 import uuid
+import math
 
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update, text, and_, desc, asc
@@ -870,6 +871,22 @@ class DatabaseWriter:
         """
         if len(metrics) == 0:
             return
+
+        # Filter out invalid metric entries to avoid inserting non-numeric data
+        filtered: list[tuple[str, float, int]] = []
+        for key, value, step in metrics:
+            try:
+                v = float(value)
+                s = int(step)
+                if not math.isfinite(v) or not math.isfinite(s):
+                    continue
+                filtered.append((key, v, s))
+            except (TypeError, ValueError):
+                continue
+
+        if not filtered:
+            return
+
         table_obj = self._tables["metric"]["table"]
         insert_func = self._get_insert_func()
         
@@ -882,16 +899,20 @@ class DatabaseWriter:
                         "step": step,
                         "created_at": datetime.now(),
                     }
-                    for key, value, step in metrics
+                    for key, value, step in filtered
                 ]
                 stmt = insert_func(table_obj).values(data)
                 await session.execute(stmt)
                 await session.commit()
-                
-                get_logger().debug(f"Batch inserted {len(metrics)} metric records to {self._config.db_type}")
+
+                get_logger().debug(
+                    f"Batch inserted {len(filtered)} metric records to {self._config.db_type}"
+                )
             except Exception as e:
                 await session.rollback()
-                get_logger().error(f"Error batch writing metrics to {self._config.db_type}: {e}")
+                get_logger().error(
+                    f"Error batch writing metrics to {self._config.db_type}: {e}"
+                )
                 raise
 
     @lock_decorator
