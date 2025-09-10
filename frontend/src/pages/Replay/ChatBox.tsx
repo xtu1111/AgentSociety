@@ -352,7 +352,7 @@ export const RightPanel = observer(() => {
                                         text: key,
                                         font: { size: 16, family: 'Arial' }
                                     },
-                                    width: 600,
+                                    autosize: true,
                                     height: 200,
                                     margin: { l: 30, r: 10, t: 30, b: 30 },
                                     xaxis: {
