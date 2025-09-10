@@ -339,9 +339,11 @@ export const RightPanel = observer(() => {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
 
+        const metricEntries = Array.from(metrics.entries());
+        
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
-                {entries.map(([key, valid]) => {
+                {metricEntries.map(([key, values]) => {
                     const x = valid.map(v => v.step);
                     const y = valid.map(v => v.value);
 
