@@ -2,9 +2,11 @@
 A clear version of the simulation.
 """
 
+
 import asyncio
 import inspect
 import json
+import math
 import os
 import traceback
 from collections import defaultdict
@@ -16,7 +18,6 @@ from typing import Any, Callable, Literal, Optional, Union, cast
 import yaml
 import random
 from fastembed import SparseTextEmbedding
-import math
 
 
 def _parse_hhmm(time_str: str) -> int:
@@ -1683,52 +1684,19 @@ class SimulationEngine:
             # Log metrics from environment
             # ======================
             metrics = await self.environment.get_metrics()
-            # sanitize metrics to ensure numeric step/value
-            cleaned_metrics: list[tuple[str, float, int]] = []
-            for key, value, step in metrics:
-                try:
-                    if value is None or step is None:
-                        continue
-                    v = float(value)
-                    s = int(step)
-                    if math.isfinite(v) and math.isfinite(s):
-                        cleaned_metrics.append((key, v, s))
-                except (TypeError, ValueError):
-                    continue
-            metrics = cleaned_metrics
-            
-            if self.enable_database:
-                # Gather agent-level sentiment and adoption data
-                sentiments = await self.gather("sentiment", flatten=True)
-                sentiment_values = [
-                    s for s in sentiments if isinstance(s, (int, float))
-                ]
-                if sentiment_values:
-                    avg_sentiment = sum(sentiment_values) / len(sentiment_values)
-                    metrics.append(
-                        (
-                            "avg_sentiment",
-                            float(avg_sentiment),
-                            self.environment.get_tick(),
-                        )
-                    )
-
-                adopted_list = await self.gather("adopted", flatten=True)
-                adopted_flags = [a for a in adopted_list if isinstance(a, bool)]
-                if adopted_flags:
-                    adoption_rate = (
-                        sum(1 for a in adopted_flags if a) / len(adopted_flags)
-                    )
-                    metrics.append(
-                        (
-                            "adoption_rate",
-                            float(adoption_rate),
-                            self.environment.get_tick(),
-                        )
-                    )
-
-                if metrics:
-                    await self._database_writer.log_metric(metrics)
+            # Ensure metrics contain only valid numeric values
+            metrics = [
+                (k, v, s)
+                for k, v, s in metrics
+                if v is not None
+                and s is not None
+                and isinstance(v, (int, float))
+                and isinstance(s, (int, float))
+                and not math.isnan(v)
+                and not math.isnan(s)
+            ]
+            if self.enable_database and metrics:
+                await self._database_writer.log_metric(metrics)
             get_logger().debug(f"({day}-{t}) Finished simulator sync")
             # ======================
             # go to next step

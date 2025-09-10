@@ -261,26 +261,23 @@ export class ReplayStore {
             const res = await fetchCustom(`/api/experiments/${this.expID}/metrics`)
             const data = await res.json()
             runInAction(() => {
+                // Handle null or undefined data.data and sanitize metrics
                 if (data.data && typeof data.data === 'object') {
-                    const cleaned = Object.entries(data.data)
-                        .map(([key, arr]: [string, any]) => {
-                            const valid = Array.isArray(arr)
-                                ? arr
-                                    .filter((v: any) =>
-                                        v.step != null &&
-                                        v.value != null &&
-                                        Number.isFinite(Number(v.step)) &&
-                                        Number.isFinite(Number(v.value))
-                                    )
-                                    .map((v: any) => ({
-                                        step: Number(v.step),
-                                        value: Number(v.value)
-                                    }))
-                                : [];
-                            return [key, valid];
-                        })
-                        .filter(([, arr]) => (arr as any[]).length > 0);
-                    this._metrics = new Map(cleaned as any);
+                    const sanitized = new Map<string, ApiMetric[]>()
+                    Object.entries(data.data).forEach(([key, arr]) => {
+                        if (Array.isArray(arr)) {
+                            const metrics = (arr as ApiMetric[]).filter(m =>
+                                typeof m.value === 'number' &&
+                                typeof m.step === 'number' &&
+                                !isNaN(m.value) &&
+                                !isNaN(m.step)
+                            )
+                            if (metrics.length > 0) {
+                                sanitized.set(key, metrics)
+                            }
+                        }
+                    })
+                    this._metrics = sanitized
                 } else {
                     this._metrics = new Map();
                 }

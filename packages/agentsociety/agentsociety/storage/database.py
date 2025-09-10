@@ -1,4 +1,5 @@
 import asyncio
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional, Dict, List, Any
@@ -882,24 +883,20 @@ class DatabaseWriter:
         Args:
             metrics: List of tuples (key, value, step)
         """
+        # Filter out invalid metrics (None/NaN)
+        metrics = [
+            (k, v, s)
+            for k, v, s in metrics
+            if v is not None
+            and s is not None
+            and isinstance(v, (int, float))
+            and isinstance(s, (int, float))
+            and not math.isnan(v)
+            and not math.isnan(s)
+        ]
+
         if len(metrics) == 0:
             return
-
-        # Filter out invalid metric entries to avoid inserting non-numeric data
-        filtered: list[tuple[str, float, int]] = []
-        for key, value, step in metrics:
-            try:
-                v = float(value)
-                s = int(step)
-                if not math.isfinite(v) or not math.isfinite(s):
-                    continue
-                filtered.append((key, v, s))
-            except (TypeError, ValueError):
-                continue
-
-        if not filtered:
-            return
-
         table_obj = self._tables["metric"]["table"]
         insert_func = self._get_insert_func()
         
@@ -908,8 +905,8 @@ class DatabaseWriter:
                 data = [
                     {
                         "key": key,
-                        "value": value,
-                        "step": step,
+                        "value": float(value),
+                        "step": int(step),
                         "created_at": datetime.now(),
                     }
                     for key, value, step in filtered
@@ -919,7 +916,7 @@ class DatabaseWriter:
                 await session.commit()
 
                 get_logger().debug(
-                    f"Batch inserted {len(filtered)} metric records to {self._config.db_type}"
+                    f"Batch inserted {len(metrics)} metric records to {self._config.db_type}"
                 )
             except Exception as e:
                 await session.rollback()
@@ -1010,7 +1007,7 @@ class DatabaseWriter:
         
         async with self._async_session() as session:
             try:
-                stmt = select(table_obj).where(table_obj.c.processed == False)
+                stmt = select(table_obj).where(table_obj.c.processed.is_(False))
                 result = await session.execute(stmt)
                 rows = result.fetchall()
                 
@@ -1062,7 +1059,7 @@ class DatabaseWriter:
         
         async with self._async_session() as session:
             try:
-                stmt = select(table_obj).where(table_obj.c.processed == False)
+                stmt = select(table_obj).where(table_obj.c.processed.is_(False))
                 result = await session.execute(stmt)
                 rows = result.fetchall()
                 

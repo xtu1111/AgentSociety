@@ -1,6 +1,7 @@
 """Simulator: Urban Simulator"""
 
 import asyncio
+import math
 import os
 import tempfile
 from datetime import datetime
@@ -720,11 +721,25 @@ class EnvironmentStarter(Environment):
 
         self._last_metric_tick = self._tick
 
-        return [
+        metrics: list[tuple[str, float, int]] = [
             ("num_completed_trips", num_completed_trips, self._tick),
             ("total_travel_time (sec)", total_travel_time, self._tick),
             ("total_travel_distance (m)", total_travel_distance, self._tick),
         ]
+
+        # Filter out invalid metrics (None/NaN values)
+        filtered_metrics = [
+            (k, float(v), int(s))
+            for k, v, s in metrics
+            if v is not None
+            and s is not None
+            and isinstance(v, (int, float))
+            and isinstance(s, (int, float))
+            and not math.isnan(v)
+            and not math.isnan(s)
+        ]
+
+        return filtered_metrics
 
 
 def _generate_yaml_config(map_file) -> str:
