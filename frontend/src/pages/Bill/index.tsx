@@ -212,8 +212,8 @@ const Page = () => {
                                 <Space>
                                     <h2>{t('bill.balance')}: ￥{typeof account?.balance === 'number' ? account.balance.toFixed(2) : '0.00'}</h2>
                                     <Button
-                                        type="text" 
-                                        icon={<SyncOutlined />} 
+                                        type="text"
+                                        icon={<SyncOutlined />}
                                         onClick={fetchAccount}
                                         title={t('bill.refresh')}
                                     />

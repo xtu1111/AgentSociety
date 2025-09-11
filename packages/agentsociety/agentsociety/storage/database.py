@@ -883,40 +883,41 @@ class DatabaseWriter:
         Args:
             metrics: List of tuples (key, value, step)
         """
-        # Filter out invalid metrics (None/NaN)
-        filtered = [
-            (k, v, s)
-            for k, v, s in metrics
-            if v is not None
-            and s is not None
-            and isinstance(v, (int, float))
-            and isinstance(s, (int, float))
-            and not math.isnan(v)
-            and not math.isnan(s)
-        ]
-
-        if not filtered:
+        if len(metrics) == 0:
             return
         table_obj = self._tables["metric"]["table"]
         insert_func = self._get_insert_func()
-        
+
+        # Filter out invalid metric values such as None, NaN or Infinity
+        valid_metrics = []
+        for key, value, step in metrics:
+            if value is None or not math.isfinite(value):
+                get_logger().warning(
+                    f"Skipping invalid metric {key}={value} at step {step}"
+                )
+                continue
+            valid_metrics.append((key, value, step))
+
+        if len(valid_metrics) == 0:
+            return
+
         async with self._async_session() as session:
             try:
                 data = [
                     {
                         "key": key,
-                        "value": float(value),
-                        "step": int(step),
+                        "value": value,
+                        "step": step,
                         "created_at": datetime.now(),
                     }
-                    for key, value, step in filtered
+                    for key, value, step in valid_metrics
                 ]
                 stmt = insert_func(table_obj).values(data)
                 await session.execute(stmt)
                 await session.commit()
 
                 get_logger().debug(
-                    f"Batch inserted {len(metrics)} metric records to {self._config.db_type}"
+                    f"Batch inserted {len(valid_metrics)} metric records to {self._config.db_type}"
                 )
             except Exception as e:
                 await session.rollback()
