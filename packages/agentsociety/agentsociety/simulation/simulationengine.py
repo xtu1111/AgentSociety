@@ -1692,8 +1692,8 @@ class SimulationEngine:
                 and s is not None
                 and isinstance(v, (int, float))
                 and isinstance(s, (int, float))
-                and not math.isnan(v)
-                and not math.isnan(s)
+                and math.isfinite(v)
+                and math.isfinite(s)
             ]
             if self.enable_database and metrics:
                 await self._database_writer.log_metric(metrics)

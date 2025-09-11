@@ -348,16 +348,21 @@ async def get_experiment_metrics_by_id(
     # Aggregate metrics by key, skipping invalid values
     metrics_by_key: Dict[str, List[ApiMetric]] = defaultdict(list)
     for row in rows:
-        value = float(row[1])
-        if not math.isfinite(value):
-            logging.getLogger("agentsociety").warning(
-                f"Ignoring invalid metric {row[0]}={row[1]} at step {row[2]}"
-            )
+        value = row[1]
+        step = row[2]
+        if (
+            value is None
+            or step is None
+            or not isinstance(value, (int, float))
+            or not isinstance(step, (int, float))
+            or not math.isfinite(value)
+            or not math.isfinite(step)
+        ):
             continue
         api_metric = ApiMetric(
             key=row[0],
-            value=value,
-            step=int(row[2]),
+            value=float(value),
+            step=int(step),
         )
         metrics_by_key[row[0]].append(api_metric)
 

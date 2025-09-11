@@ -244,11 +244,23 @@ export const RightPanel = observer(() => {
 
     const renderMetrics = () => {
         const metrics = store.metrics;
-        if (metrics.size === 0) {
+        const metricEntries = Array.from(metrics.entries())
+            .map(
+                ([key, values]) =>
+                    [
+                        key,
+                        values.filter(
+                            (v) =>
+                                Number.isFinite(v.step) &&
+                                Number.isFinite(v.value)
+                        ),
+                    ] as [string, ApiMetric[]]
+            )
+            .filter(([, values]) => values.length > 0);
+
+        if (metricEntries.length === 0) {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
-
-        const metricEntries = Array.from(metrics.entries());
 
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>

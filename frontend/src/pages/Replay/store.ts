@@ -266,11 +266,10 @@ export class ReplayStore {
                     const sanitized = new Map<string, ApiMetric[]>()
                     Object.entries(data.data).forEach(([key, arr]) => {
                         if (Array.isArray(arr)) {
-                            const metrics = (arr as ApiMetric[]).filter(m =>
-                                typeof m.value === 'number' &&
-                                typeof m.step === 'number' &&
-                                !isNaN(m.value) &&
-                                !isNaN(m.step)
+                            const metrics = (arr as ApiMetric[]).filter(
+                                (m) =>
+                                    Number.isFinite(m.value) &&
+                                    Number.isFinite(m.step)
                             )
                             if (metrics.length > 0) {
                                 sanitized.set(key, metrics)
