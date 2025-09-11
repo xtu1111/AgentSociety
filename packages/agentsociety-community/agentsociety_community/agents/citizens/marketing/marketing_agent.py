@@ -236,6 +236,11 @@ class MarketingAgent(CitizenAgentBase):
         self.max_forwards = (
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
+        self.adoption_threshold = (
+            agent_params.adoption_threshold
+            if agent_params and hasattr(agent_params, "adoption_threshold")
+            else 0.5
+        )
 
     async def init(self) -> None:
         await super().init()
@@ -281,6 +286,8 @@ class MarketingAgent(CitizenAgentBase):
         delta = new_sentiment - sentiment
         fatigue = float(np.exp(-0.3 * (exposure - 1)))
         effective_sentiment = sentiment + delta * fatigue
+        if not new_adopted and effective_sentiment > self.adoption_threshold:
+            new_adopted = True
         await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", emotion)
         await self.memory.status.update("thought", thought)
