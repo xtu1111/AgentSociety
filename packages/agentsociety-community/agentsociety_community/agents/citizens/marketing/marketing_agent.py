@@ -32,6 +32,18 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 # coefficient for interest similarity boost
 BETA = 0.5
 
+# mapping from emotion labels to numeric values for logging
+EMOTION_SCORES = {
+    "happiness": 1.0,
+    "happy": 1.0,
+    "joy": 1.0,
+    "neutral": 0.0,
+    "sadness": -1.0,
+    "sad": -1.0,
+    "anger": -0.5,
+    "angry": -0.5,
+}
+
 def _extract_text(raw: str) -> str:
     """Best-effort extraction of human-readable text from potential JSON."""
     text = raw.strip()
@@ -276,10 +288,12 @@ class MarketingAgent(CitizenAgentBase):
         await self.memory.status.update("attitude", attitude)
         await self.memory.status.update("current_need", need)
         if self.database_writer is not None:
+            emotion_score = EMOTION_SCORES.get(emotion.strip().lower(), 0.0)
             await self.database_writer.log_metric(
                 [
                     (f"sentiment:{self.id}", float(effective_sentiment), exposure),
                     (f"adopted:{self.id}", 1.0 if new_adopted else 0.0, exposure),
+                    (f"emotion:{self.id}", float(emotion_score), exposure),
                 ]
             )
         if share:

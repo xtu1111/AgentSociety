@@ -1466,6 +1466,9 @@ class SimulationEngine:
                 else:
                     action = "Planning"
                 status_summary = await agent.status.get("status_summary", "Nothing")
+                sentiment = await agent.status.get("sentiment")
+                adopted = await agent.status.get("adopted")
+                emotion = await agent.status.get("emotion")
                 status = StorageStatus(
                     id=agent.id,
                     day=day,
@@ -1474,7 +1477,12 @@ class SimulationEngine:
                     lat=lat,
                     parent_id=parent_id,
                     action=action,
-                    status=status_summary,
+                    status={
+                        "status_summary": status_summary,
+                        "sentiment": sentiment,
+                        "adopted": adopted,
+                        "emotion": emotion,
+                    },
                     created_at=created_at,
                 )
                 statuses.append(status)

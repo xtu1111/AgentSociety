@@ -38,6 +38,14 @@ __all__ = ["router"]
 router = APIRouter(tags=["experiments"])
 
 
+EMOTION_VALUE_TO_LABEL = {
+    1.0: "happiness",
+    0.0: "neutral",
+    -1.0: "sadness",
+    -0.5: "anger",
+}
+
+
 async def _find_started_experiment_by_id(
     request: Request, db: AsyncSession, exp_id: uuid.UUID
 ) -> Experiment:
@@ -243,6 +251,16 @@ async def get_experiment_summary(
                         sentiments.append(metrics[-1].value)
                     except Exception:
                         continue
+                elif key.startswith("emotion:"):
+                    try:
+                        val = float(metrics[-1].value)
+                    except Exception:
+                        continue
+                    label = EMOTION_VALUE_TO_LABEL.get(val)
+                    if label is None:
+                        label = str(val)
+                    emotion_distribution[label] += 1
+                    emotion_sums[label] += val
 
         adoption_rate = (
             sum(1 for v in adopted_flags.values() if v) / len(adopted_flags)

@@ -1,5 +1,5 @@
 import enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import uuid
@@ -83,7 +83,7 @@ class StorageStatus(BaseModel):
     lat: Optional[float]
     parent_id: Optional[int]
     action: str
-    status: str
+    status: Any
     created_at: datetime
 
 
