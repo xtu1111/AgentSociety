@@ -348,7 +348,31 @@ class MarketingAgent(CitizenAgentBase):
         return await self._handle_message(content, sender_id, [])
 
     async def react_to_intervention(self, intervention_message: str):
-        await self._handle_message(intervention_message, None, [])
+        """Handle incoming marketing intervention payloads.
+
+        The simulation engine sends marketing messages as a JSON string
+        containing both the content and optional tags. Previously we passed
+        the raw JSON string straight into ``_handle_message`` which ignored
+        tags and gave the LLM a JSON blob instead of the human‑readable
+        message. As a result agents rarely shared messages and no LLM tokens
+        were consumed.
+
+        This method now parses the JSON payload, extracting the ``content``
+        and ``tags`` fields before delegating to ``_handle_message``. If the
+        payload isn't valid JSON we fall back to treating the entire string as
+        the message with no tags. This ensures marketing interventions always
+        trigger cognitive processing and optional sharing behaviour.
+        """
+
+        try:
+            data = json.loads(intervention_message)
+            content = data.get("content", intervention_message)
+            tags: List[str] = data.get("tags", []) if isinstance(data.get("tags"), list) else []
+        except Exception:
+            content = intervention_message
+            tags = []
+
+        await self._handle_message(content, None, tags)
 
     async def forward(self) -> None:
         """Execute one simulation tick.
