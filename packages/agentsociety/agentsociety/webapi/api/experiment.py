@@ -189,8 +189,8 @@ async def get_experiment_summary(
         rows = (await db.execute(stmt)).all()
 
         total = len(rows)
-        adopted = 0
         sentiments: List[float] = []
+        adopted_flags: Dict[int, bool] = {}
         emotion_distribution: Dict[str, int] = defaultdict(int)
         emotion_sums: Dict[str, float] = defaultdict(float)
 
@@ -204,27 +204,59 @@ async def get_experiment_summary(
             if not isinstance(status_data, dict):
                 status_data = {}
 
-            if status_data.get("adopted"):
-                adopted += 1
-            if "sentiment" in status_data:
+            adopted_val = status_data.get("adopted")
+            if isinstance(adopted_val, (bool, int, float, str)):
                 try:
-                    sentiments.append(float(status_data["sentiment"]))
+                    adopted_flags[row.id] = bool(json.loads(str(adopted_val).lower())) if isinstance(adopted_val, str) else bool(adopted_val)
+                except Exception:
+                    adopted_flags[row.id] = bool(adopted_val)
+
+            sentiment_val = status_data.get("sentiment")
+            if sentiment_val is not None:
+                try:
+                    sentiments.append(float(sentiment_val))
                 except Exception:
                     pass
-            if "emotion_types" in status_data:
-                emotion_distribution[str(status_data["emotion_types"])] += 1
-            if isinstance(status_data.get("emotion"), dict):
-                for k, v in status_data["emotion"].items():
+
+            emo_val = status_data.get("emotion")
+            if isinstance(emo_val, dict):
+                for k, v in emo_val.items():
                     try:
                         emotion_sums[k] += float(v)
                     except Exception:
                         pass
+            elif isinstance(emo_val, str):
+                emotion_distribution[emo_val] += 1
 
-        adoption_rate = adopted / total if total else 0.0
-        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
-        avg_emotion = (
-            {k: v / total for k, v in emotion_sums.items()} if total else {}
+        # Compute adoption and sentiment from metrics if available
+        has_metrics, metrics_by_key = await get_experiment_metrics_by_id(request, db, exp_id)
+        if has_metrics:
+            for key, metrics in metrics_by_key.items():
+                if key.startswith("adopted:"):
+                    try:
+                        agent_id = int(key.split(":", 1)[1])
+                        adopted_flags[agent_id] = bool(metrics[-1].value)
+                    except Exception:
+                        continue
+                elif key.startswith("sentiment:"):
+                    try:
+                        sentiments.append(metrics[-1].value)
+                    except Exception:
+                        continue
+
+        adoption_rate = (
+            sum(1 for v in adopted_flags.values() if v) / len(adopted_flags)
+            if adopted_flags
+            else 0.0
         )
+        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
+
+        if emotion_sums:
+            avg_emotion = {k: v / total for k, v in emotion_sums.items()}
+        elif emotion_distribution and total:
+            avg_emotion = {k: v / total for k, v in emotion_distribution.items()}
+        else:
+            avg_emotion = {}
 
         summary = ApiExperimentSummary(
             adoption_rate=adoption_rate,
