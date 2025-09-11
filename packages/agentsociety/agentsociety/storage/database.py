@@ -883,7 +883,7 @@ class DatabaseWriter:
         Args:
             metrics: List of tuples (key, value, step)
         """
-        filtered = [
+        valid_metrics = [
             (k, v, s)
             for k, v, s in metrics
             if v is not None
@@ -894,7 +894,7 @@ class DatabaseWriter:
             and math.isfinite(s)
         ]
 
-        if not filtered:
+        if not valid_metrics:
             return
         table_obj = self._tables["metric"]["table"]
         insert_func = self._get_insert_func()
@@ -908,7 +908,7 @@ class DatabaseWriter:
                         "step": int(step),
                         "created_at": datetime.now(),
                     }
-                    for key, value, step in filtered
+                    for key, value, step in valid_metrics
                 ]
                 stmt = insert_func(table_obj).values(data)
                 await session.execute(stmt)
