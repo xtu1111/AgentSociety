@@ -53,6 +53,9 @@ const ResultSummary: React.FC = () => {
         if (summary.average_sentiment != null) {
             rows.push(["average_sentiment", summary.average_sentiment.toString()]);
         }
+        if (summary.overall_average_emotion != null) {
+            rows.push(["average_emotion_overall", summary.overall_average_emotion.toString()]);
+        }
         if (summary.average_emotion) {
             Object.entries(summary.average_emotion).forEach(([k, v]) => {
                 rows.push([`avg_${k}`, v.toString()]);
@@ -103,9 +106,15 @@ const ResultSummary: React.FC = () => {
                         <div>
                             <p>{t("replay.summary.emotionDistribution")}</p>
                             <ul>
-                                {Object.entries(summary.emotion_distribution).map(([k, v]) => (
-                                    <li key={k}>{k}: {v}</li>
-                                ))}
+                                {(() => {
+                                    const total = Object.values(summary.emotion_distribution).reduce((a, b) => a + b, 0);
+                                    return Object.entries(summary.emotion_distribution).map(([k, v]) => {
+                                        const pct = total ? ((v / total) * 100).toFixed(1) : '0';
+                                        return (
+                                            <li key={k}>{k}: {v} ({pct}%)</li>
+                                        );
+                                    });
+                                })()}
                             </ul>
                         </div>
                         <Button onClick={exportJSON} style={{ marginRight: 8 }}>

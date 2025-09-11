@@ -17,7 +17,9 @@ import json_repair
 import numpy as np
 import re
 
-from agentsociety.agent import CitizenAgentBase, MemoryAttribute
+from pydantic import Field
+
+from agentsociety.agent import AgentParams, CitizenAgentBase, MemoryAttribute
 from agentsociety.agent.agent_base import AgentToolbox
 from agentsociety.cityagent.blocks.utils import clean_json_response
 from agentsociety.memory import Memory
@@ -43,6 +45,25 @@ EMOTION_SCORES = {
     "anger": -0.5,
     "angry": -0.5,
 }
+
+# fallback mapping from attitude/emotion labels to sentiment values
+ATTITUDE_SENTIMENT_MAP = {
+    "興味あり": 0.4,
+    "興味深い": 0.6,
+    "無関心": 0.0,
+    "嫌い": -0.6,
+}
+
+class MarketingAgentConfig(AgentParams):
+    """Configuration options for :class:`MarketingAgent`."""
+
+    max_forwards: int = Field(
+        default=5, description="Maximum number of friends to forward messages to"
+    )
+    adoption_threshold: float = Field(
+        default=0.6,
+        description="Minimum sentiment required before automatically adopting",
+    )
 
 def _extract_text(raw: str) -> str:
     """Best-effort extraction of human-readable text from potential JSON."""
@@ -114,8 +135,18 @@ async def _consult_llm(
         cleaned = clean_json_response(reply)
         data = json_repair.loads(cleaned)
 
-        raw_sentiment = data.get("sentiment", sentiment)
-        new_sentiment = float(raw_sentiment) if isinstance(raw_sentiment, (int, float)) else sentiment
+        raw_sentiment = data.get("sentiment")
+        if isinstance(raw_sentiment, (int, float)):
+            new_sentiment = float(raw_sentiment)
+        else:
+            label = data.get("attitude")
+            if label is None or str(label) not in ATTITUDE_SENTIMENT_MAP:
+                label = data.get("emotion")
+            if isinstance(label, (str, int, float)):
+                mapped = ATTITUDE_SENTIMENT_MAP.get(str(label))
+                new_sentiment = mapped if mapped is not None else sentiment
+            else:
+                new_sentiment = sentiment
 
         raw_adopted = data.get("adopted", adopted)
         new_adopted = bool(raw_adopted) if isinstance(raw_adopted, (bool, int)) else adopted
@@ -205,6 +236,7 @@ async def _extract_profile_from_memory(memory: Memory) -> dict:
 class MarketingAgent(CitizenAgentBase):
     """Citizen reacting to marketing information."""
 
+    ParamsType = MarketingAgentConfig
     StatusAttributes = [
         MemoryAttribute(name="friends", type=list, default_or_value=[], description="friend ids"),
         MemoryAttribute(name="connections", type=list, default_or_value=[], description="social connections"),
@@ -239,7 +271,7 @@ class MarketingAgent(CitizenAgentBase):
         self.adoption_threshold = (
             agent_params.adoption_threshold
             if agent_params and hasattr(agent_params, "adoption_threshold")
-            else 0.5
+            else 0.6
         )
 
     async def init(self) -> None:
@@ -273,6 +305,7 @@ class MarketingAgent(CitizenAgentBase):
         ) = await _consult_llm(
             self, profile, sentiment, adopted, content, friend_names, exposure
         )
+        new_sentiment = float(np.clip(new_sentiment, -1, 1))
         model = profile.get("share_model", "rule")
         if model != "llm":
             sim_self = _similarity(tags or [], profile)
@@ -286,7 +319,7 @@ class MarketingAgent(CitizenAgentBase):
         delta = new_sentiment - sentiment
         fatigue = float(np.exp(-0.3 * (exposure - 1)))
         effective_sentiment = sentiment + delta * fatigue
-        if not new_adopted and effective_sentiment > self.adoption_threshold:
+        if not new_adopted and effective_sentiment >= self.adoption_threshold:
             new_adopted = True
         await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", emotion)

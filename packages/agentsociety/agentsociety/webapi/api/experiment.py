@@ -38,11 +38,24 @@ __all__ = ["router"]
 router = APIRouter(tags=["experiments"])
 
 
+# Mapping between numeric emotion score and canonical label
 EMOTION_VALUE_TO_LABEL = {
     1.0: "happiness",
     0.0: "neutral",
     -1.0: "sadness",
     -0.5: "anger",
+}
+
+# Polarity values for sorting and overall average calculations
+EMOTION_POLARITY = {
+    "happiness": 1.0,
+    "happy": 1.0,
+    "joy": 1.0,
+    "neutral": 0.0,
+    "sadness": -1.0,
+    "sad": -1.0,
+    "anger": -0.5,
+    "angry": -0.5,
 }
 
 
@@ -201,6 +214,7 @@ async def get_experiment_summary(
         adopted_flags: Dict[int, bool] = {}
         emotion_distribution: Dict[str, int] = defaultdict(int)
         emotion_sums: Dict[str, float] = defaultdict(float)
+        emotion_counts: Dict[str, int] = defaultdict(int)
 
         for row in rows:
             status_data = row.status
@@ -230,11 +244,13 @@ async def get_experiment_summary(
             if isinstance(emo_val, dict):
                 for k, v in emo_val.items():
                     try:
-                        emotion_sums[k] += float(v)
+                        label = str(k).strip().lower()
+                        emotion_sums[label] += float(v)
+                        emotion_counts[label] += 1
                     except Exception:
                         pass
             elif isinstance(emo_val, str):
-                emotion_distribution[emo_val] += 1
+                emotion_distribution[str(emo_val).strip().lower()] += 1
 
         # Compute adoption and sentiment from metrics if available
         has_metrics, metrics_by_key = await get_experiment_metrics_by_id(request, db, exp_id)
@@ -259,8 +275,10 @@ async def get_experiment_summary(
                     label = EMOTION_VALUE_TO_LABEL.get(val)
                     if label is None:
                         label = str(val)
+                    label = str(label).strip().lower()
                     emotion_distribution[label] += 1
                     emotion_sums[label] += val
+                    emotion_counts[label] += 1
 
         adoption_rate = (
             sum(1 for v in adopted_flags.values() if v) / len(adopted_flags)
@@ -270,17 +288,35 @@ async def get_experiment_summary(
         avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
 
         if emotion_sums:
-            avg_emotion = {k: v / total for k, v in emotion_sums.items()}
+            avg_emotion = {
+                k: emotion_sums[k] / emotion_counts[k]
+                for k in emotion_sums.keys()
+                if emotion_counts[k] > 0
+            }
+            overall_avg_emotion = sum(emotion_sums.values()) / sum(emotion_counts.values())
         elif emotion_distribution and total:
             avg_emotion = {k: v / total for k, v in emotion_distribution.items()}
+            overall_avg_emotion = sum(
+                EMOTION_POLARITY.get(k, 0.0) * v for k, v in emotion_distribution.items()
+            ) / total
         else:
             avg_emotion = {}
+            overall_avg_emotion = 0.0
+
+        sorted_distribution = dict(
+            sorted(
+                emotion_distribution.items(),
+                key=lambda item: EMOTION_POLARITY.get(item[0], 0.0),
+                reverse=True,
+            )
+        )
 
         summary = ApiExperimentSummary(
             adoption_rate=adoption_rate,
             average_sentiment=avg_sentiment,
             average_emotion=avg_emotion,
-            emotion_distribution=dict(emotion_distribution),
+            overall_average_emotion=overall_avg_emotion,
+            emotion_distribution=sorted_distribution,
         )
         return ApiResponseWrapper(data=summary)
 
