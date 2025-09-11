@@ -210,14 +210,10 @@ const Page = () => {
                         <Row justify="space-between" align="middle">
                             <Col>
                                 <Space>
-                                    <h2>
-                                        {t('bill.balance')}: ￥
-                                        {typeof account?.balance === 'number'
-                                            ? account.balance.toFixed(2)
-                                            : '0.00'}
-                                    </h2>                                    <Button
-                                        type="text"
-                                        icon={<SyncOutlined />}
+                                    <h2>{t('bill.balance')}: ￥{typeof account?.balance === 'number' ? account.balance.toFixed(2) : '0.00'}</h2>                                 <Button
+                                    <Button 
+                                        type="text" 
+                                        icon={<SyncOutlined />} 
                                         onClick={fetchAccount}
                                         title={t('bill.refresh')}
                                     />
@@ -294,11 +290,7 @@ const Page = () => {
                     <InputNumber
                         min={0.01}
                         value={rechargeAmount}
-                        onChange={(value) =>
-                            setRechargeAmount(
-                                typeof value === 'number' ? Number(value.toFixed(2)) : 0
-                            )
-                        }
+                        onChange={(value) => setRechargeAmount(typeof value === 'number' ? Number(value.toFixed(2)) : 0)}
                         style={{ width: '100%' }}
                         addonBefore="￥"
                         precision={2}
