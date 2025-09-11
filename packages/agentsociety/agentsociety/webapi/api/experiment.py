@@ -221,7 +221,7 @@ async def get_experiment_summary(
                         pass
 
         adoption_rate = adopted / total if total else 0.0
-        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else None
+        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
         avg_emotion = (
             {k: v / total for k, v in emotion_sums.items()} if total else {}
         )

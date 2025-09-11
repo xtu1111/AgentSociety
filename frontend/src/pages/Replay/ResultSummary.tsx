@@ -50,7 +50,7 @@ const ResultSummary: React.FC = () => {
         if (!summary || !store.expID) return;
         const rows: string[][] = [["metric", "value"]];
         rows.push(["adoption_rate", summary.adoption_rate.toString()]);
-        if (summary.average_sentiment !== undefined) {
+        if (summary.average_sentiment != null) {
             rows.push(["average_sentiment", summary.average_sentiment.toString()]);
         }
         if (summary.average_emotion) {
@@ -87,15 +87,15 @@ const ResultSummary: React.FC = () => {
                 ) : (
                     <div>
                         <p>{t("replay.summary.adoptionRate")}: {(summary.adoption_rate * 100).toFixed(2)}%</p>
-                        {summary.average_sentiment !== undefined && (
-                            <p>{t("replay.summary.averageSentiment")}: {summary.average_sentiment.toFixed(2)}</p>
+                        {summary.average_sentiment != null && (
+                            <p>{t("replay.summary.averageSentiment")}: {typeof summary.average_sentiment === 'number' ? summary.average_sentiment.toFixed(2) : '—'}</p>
                         )}
                         {summary.average_emotion && (
                             <div>
                                 <p>{t("replay.summary.averageEmotion")}</p>
                                 <ul>
                                     {Object.entries(summary.average_emotion).map(([k, v]) => (
-                                        <li key={k}>{k}: {v.toFixed(2)}</li>
+                                        <li key={k}>{k}: {typeof v === 'number' ? v.toFixed(2) : '—'}</li>
                                     ))}
                                 </ul>
                             </div>

@@ -52,7 +52,7 @@ export interface ApiMetric {
 }
 export interface ExperimentSummary {
     adoption_rate: number;
-    average_sentiment?: number;
+    average_sentiment: number;
     average_emotion?: { [key: string]: number };
     emotion_distribution: { [key: string]: number };
 }
