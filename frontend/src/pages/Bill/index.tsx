@@ -140,6 +140,9 @@ const Page = () => {
         }
     };
 
+    const fmtMoney = (v: unknown, digits = 2) =>
+        typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '—';
+
     const columns: ProColumns<Bill>[] = [
         {
             title: t('bill.table.id'),
@@ -168,16 +171,16 @@ const Page = () => {
             title: t('bill.table.amount'),
             dataIndex: 'amount',
             width: '10%',
-            valueType: 'money',
-            render: (_, record) => record.amount,
+            valueType: 'text',
+            renderText: (v) => fmtMoney(v),
             search: false,
         },
         {
             title: t('bill.table.unit_price'),
             dataIndex: 'unit_price',
             width: '10%',
-            valueType: 'money',
-            render: (_, record) => record.unit_price,
+            valueType: 'text',
+            renderText: (v) => fmtMoney(v),
             search: false,
         },
         {
@@ -210,7 +213,7 @@ const Page = () => {
                         <Row justify="space-between" align="middle">
                             <Col>
                                 <Space>
-                                    <h2>{t('bill.balance')}: ￥{(account?.balance ?? 0).toFixed(2)}</h2>
+                                    <h2>{t('bill.balance')}: ￥{fmtMoney(account?.balance)}</h2>
                                     <Button 
                                         type="text" 
                                         icon={<SyncOutlined />} 
