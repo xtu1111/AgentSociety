@@ -108,7 +108,7 @@ const Page = () => {
 
     const handleRecharge = async () => {
         try {
-            const formattedAmount = Number(rechargeAmount.toFixed(2));
+            const formattedAmount = Number((rechargeAmount ?? 0).toFixed(2));
             const res = await fetchCustom('/api/alipay/recharge', {
                 method: 'POST',
                 headers: {
@@ -210,7 +210,7 @@ const Page = () => {
                         <Row justify="space-between" align="middle">
                             <Col>
                                 <Space>
-                                    <h2>{t('bill.balance')}: ￥{account?.balance ? Number(account.balance).toFixed(2) : '0.00'}</h2>
+                                    <h2>{t('bill.balance')}: ￥{typeof account?.balance === 'number' ? account.balance.toFixed(2) : '0.00'}</h2>
                                     <Button 
                                         type="text" 
                                         icon={<SyncOutlined />} 
