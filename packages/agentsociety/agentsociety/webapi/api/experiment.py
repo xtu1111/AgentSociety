@@ -227,8 +227,10 @@ async def get_experiment_summary(
         rows = (await db.execute(stmt)).all()
 
         total = len(rows)
+        # initialise adoption flags for every agent so the denominator
+        # reflects the whole population even if some agents never update
+        adopted_flags: Dict[int, bool] = {row.id: False for row in rows}
         sentiments: List[float] = []
-        adopted_flags: Dict[int, bool] = {}
         emotion_distribution: Dict[str, int] = defaultdict(int)
         emotion_sums: Dict[str, float] = defaultdict(float)
         emotion_counts: Dict[str, int] = defaultdict(int)
