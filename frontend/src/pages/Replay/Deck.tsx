@@ -143,6 +143,7 @@ const Deck = observer((props: {
                 height: 128,
                 anchorX: 64,
                 anchorY: 64,
+                mask: true,
             }),
             getSize: 30,
             getPosition: d => d.coordinate,

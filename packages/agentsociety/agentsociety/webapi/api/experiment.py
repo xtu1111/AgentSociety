@@ -450,9 +450,9 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
                     LLMConfigDB.tenant_id.in_([experiment.tenant_id, "", "default"]),
                     LLMConfigDB.id == llm_config_id,
                 )
-                llm_configs_data = (
-                    await db.execute(stmt)
-                ).scalar_one_or_none() or []
+                cfg = (await db.execute(stmt)).scalar_one_or_none()
+                if cfg:
+                    llm_configs_data.append(cfg)
 
             if not llm_configs_data:
                 config_dict = json.loads(base64.b64decode(experiment.config).decode())
