@@ -75,6 +75,8 @@ EMOTION_SCORE_MAP = {
     "interested": 0.6,
 }
 
+# reverse lookup for mapping numeric emotion scores back to canonical labels
+EMOTION_VALUE_TO_LABEL = {v: k for k, v in EMOTION_SCORE_MAP.items()}
 
 async def _find_started_experiment_by_id(
     request: Request, db: AsyncSession, exp_id: uuid.UUID
