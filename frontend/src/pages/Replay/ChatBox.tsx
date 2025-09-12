@@ -138,7 +138,23 @@ export const RightPanel = observer(() => {
             let headerName = name;
             if (m.type === 1) {
                 if (m.speaker === "" || m.speaker === agent?.id.toString()) {
-                    const toName = lastOtherSpeaker !== undefined ? store.agents.get(lastOtherSpeaker)?.name : undefined;
+                    let toName =
+                        lastOtherSpeaker !== undefined
+                            ? store.agents.get(lastOtherSpeaker)?.name
+                            : undefined;
+                    if (!toName) {
+                        for (let j = i + 1; j < uniqueDialogs.length; j++) {
+                            const next = uniqueDialogs[j];
+                            if (
+                                next.type === 1 &&
+                                next.speaker !== "" &&
+                                next.speaker !== agent?.id.toString()
+                            ) {
+                                toName = store.agents.get(parseInt(next.speaker))?.name;
+                                break;
+                            }
+                        }
+                    }
                     if (toName) {
                         headerName = `${name} to ${toName}`;
                     }
@@ -151,9 +167,11 @@ export const RightPanel = observer(() => {
                 loading: false,
                 role: role,
                 content: m.content,
-                header: <div>
-                    {headerName} ({t('replay.day', { day: m.day })} {parseT(m.t)})
-                </div>
+                header: (
+                    <div>
+                        {headerName} ({t('replay.day', { day: m.day })} {parseT(m.t)})
+                    </div>
+                ),
             };
         });
 
