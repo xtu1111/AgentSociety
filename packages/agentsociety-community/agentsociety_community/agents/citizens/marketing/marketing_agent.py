@@ -339,7 +339,9 @@ class MarketingAgent(CitizenAgentBase):
         ) = await _consult_llm(
             self, profile, sentiment, adopted, content, friend_names, exposure
         )
-        attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower(), "neutral")
+        attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower())
+        if attitude_norm is None:
+            attitude_norm = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), "neutral")
         emotion = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), attitude_norm)
         low, high = EMOTION_SCORE_RANGE.get(attitude_norm, (-0.19, 0.19))
         new_sentiment = float(RNG.uniform(low, high))
