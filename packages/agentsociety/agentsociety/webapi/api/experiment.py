@@ -6,6 +6,7 @@ import logging
 import math
 import uuid
 import zipfile
+import base64
 from typing import List, cast, Dict, Tuple
 
 import yaml
@@ -32,7 +33,7 @@ from ..models.experiment import (
 from ..models.metric import ApiMetric, metric
 from .const import DEMO_USER_ID
 from .timezone import ensure_timezone_aware
-from openai import AsyncOpenAI
+from ...llm import LLM, LLMConfig as RealLLMConfig
 
 __all__ = ["router"]
 
@@ -435,14 +436,15 @@ Here are some excerpts from the simulation (dialogs, agent internal states, syst
 
 Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution and sentiment occurred.
 """
-            client = AsyncOpenAI()
-            response = await client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=150,
-            )
-            if response.choices and response.choices[0].message.content:
-                analysis_text = response.choices[0].message.content.strip()
+            config_dict = json.loads(base64.b64decode(experiment.config).decode())
+            llm_configs_data = config_dict.get("llm", [])
+            llm_configs = [RealLLMConfig.model_validate(c) for c in llm_configs_data]
+            if llm_configs:
+                llm = LLM(llm_configs)
+                analysis_text = await llm.atext_request(
+                    dialog=[{"role": "user", "content": prompt}],
+                    max_tokens=150,
+                )
     except Exception:
         analysis_text = "No analysis available for this experiment."
 

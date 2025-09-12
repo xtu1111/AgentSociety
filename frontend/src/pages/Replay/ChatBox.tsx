@@ -201,9 +201,7 @@ export const RightPanel = observer(() => {
                             }
                         }
                     }
-                    if (toName) {
-                        headerName = `${name} to ${toName}`;
-                    }
+                    headerName = `${name} to ${toName ?? 'whom'}`;
                 } else {
                     lastOtherSpeaker = parseInt(m.speaker);
                 }
