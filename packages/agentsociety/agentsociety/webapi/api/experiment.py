@@ -456,8 +456,23 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
 
             if not llm_configs_data:
                 config_dict = json.loads(base64.b64decode(experiment.config).decode())
-                llm_configs_data = config_dict.get("llm", [])
-                
+                partial_llms = config_dict.get("llm", [])
+                for partial in partial_llms:
+                    stmt = select(LLMConfigDB.config).where(
+                        LLMConfigDB.tenant_id.in_([experiment.tenant_id, "", "default"]),
+                        LLMConfigDB.config["provider"].astext == partial.get("provider"),
+                        LLMConfigDB.config["model"].astext == partial.get("model"),
+                    )
+                    if partial.get("base_url"):
+                        stmt = stmt.where(
+                            LLMConfigDB.config["base_url"].astext == partial.get("base_url")
+                        )
+                    cfg = (await db.execute(stmt.limit(1))).scalar_one_or_none()
+                    if cfg:
+                        llm_configs_data.append(cfg)
+                if not llm_configs_data:
+                    llm_configs_data = partial_llms
+
             llm_configs = [RealLLMConfig.model_validate(c) for c in llm_configs_data]
             if llm_configs:
                 llm = LLM(llm_configs)

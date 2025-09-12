@@ -67,20 +67,35 @@ const Deck = observer((props: {
 
     const agentList = Array.from(store.agents.values());
 
-    const getSentimentColor = (sentiment?: number): Color => {
-        if (typeof sentiment !== 'number') {
-            return [0, 255, 0, 255];
+    const getSentiment = (status: any): number | undefined => {
+        if (typeof status === 'object' && status !== null) {
+            const val = (status as any)["sentiment"];
+            return typeof val === 'number' ? val : Number(val);
         }
-
-        if (sentiment > 0.2) {
-            return [0, 0, 255, 255];
-        } else if (sentiment < -0.2) {
-            return [255, 0, 0, 255];
-        } else {
-        return [0, 255, 0, 255];
+        if (typeof status === 'string') {
+            try {
+                const parsed = JSON.parse(status);
+                const val = parsed["sentiment"];
+                return typeof val === 'number' ? val : Number(val);
+            } catch (err) {
+                console.error('failed to parse status sentiment', err);
+            }
         }
+        return undefined;
     };
 
+    const getSentimentColor = (sentiment?: number): Color => {
+        if (typeof sentiment !== 'number' || Number.isNaN(sentiment)) {
+            return [0, 255, 0, 255];
+        }
+        if (sentiment >= 0.2) {
+            return [0, 0, 255, 255];
+        }
+        if (sentiment <= -0.2) {
+            return [255, 0, 0, 255];
+        }
+        return [0, 255, 0, 255];
+    };
 
     if (curZoom > 10) {
         const iconLayer = new IconLayer({
@@ -113,7 +128,7 @@ const Deck = observer((props: {
                 } catch (e) {
                     console.error(e);
                 }
-                const sentiment = typeof a.status === 'object' ? Number(a.status['sentiment']) : undefined;
+                const sentiment = getSentiment(a.status);
                 return {
                     id: a.id,
                     coordinate: [a.lng, a.lat],
@@ -177,7 +192,7 @@ const Deck = observer((props: {
         const pointLayer = new ScatterplotLayer({
             id: 'point',
             data: agentList.map((a) => {
-                const sentiment = typeof a.status === 'object' ? Number(a.status['sentiment']) : undefined;
+                const sentiment = getSentiment(a.status);
                 return {
                     id: a.id,
                     position: [a.lng, a.lat],
