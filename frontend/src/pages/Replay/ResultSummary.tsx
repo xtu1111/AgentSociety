@@ -5,15 +5,14 @@ import { StoreContext } from "./store";
 import { ExperimentSummary } from "./components/type";
 import { fetchCustom } from "../../components/fetch";
 
+const ResultSummary: React.FC = () => {
+    const { t } = useTranslation();
     const emotionLabels: Record<string, string> = {
         interested: t('emotion.interested'),
         curious: t('emotion.curious'),
         neutral: t('emotion.neutral'),
         relaxed: t('emotion.relaxed')
     };
-
-const ResultSummary: React.FC = () => {
-    const { t } = useTranslation();
     const store = useContext(StoreContext);
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
