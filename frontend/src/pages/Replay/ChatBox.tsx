@@ -118,7 +118,10 @@ export const RightPanel = observer(() => {
                     content = contentJson.content;
                 }
             } catch {
-                // ignore JSON parse errors
+                const match = m.content.match(/^[{]\s*['"]?content['"]?\s*:\s*['"]([^'"]*)['"]/);
+                if (match) {
+                    content = match[1];
+                }
             }
             const key = `${m.day}-${m.t}-${m.type}-${m.speaker}-${content}`;
             if (seen.has(key)) {
