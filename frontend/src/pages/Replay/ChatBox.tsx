@@ -1,6 +1,6 @@
-import { Button, Col, Divider, Flex, GetProp, message, Modal, Row, Select, Tabs } from 'antd';
+import { Button, Flex, GetProp, message, Modal, Row, Select, Tabs } from 'antd';
 import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, SmileOutlined, UpOutlined, UserOutlined, LineChartOutlined } from '@ant-design/icons';
-import { AgentDialog, AgentProfile, AgentSurvey, ApiMetric } from './components/type';
+import { AgentDialog, ApiMetric } from './components/type';
 import { Bubble, Sender } from '@ant-design/x';
 import { parseT } from '../../components/util';
 import React, { useContext, useState } from 'react';
@@ -116,7 +116,8 @@ export const RightPanel = observer(() => {
                         if (contentJson.content !== undefined) {
                             content = contentJson.content;
                         }
-                    } catch (e) {
+                    } catch {
+                        // ignore JSON parse errors
                     }
                     const { role, name } = getRoleByChatMessage(m);
 
@@ -260,18 +261,29 @@ export const RightPanel = observer(() => {
             )
             .filter(([, values]) => values.length > 0);
 
-        const topEntries: [string, ApiMetric[]][] = [];
+        let sentimentMetrics: ApiMetric[] = [];
+        let adoptedMetrics: ApiMetric[] = [];
 
         if (clickedAgentID !== undefined) {
             const agentSentimentKey = `sentiment:${clickedAgentID}`;
             const agentAdoptedKey = `adopted:${clickedAgentID}`;
 
-            for (const entry of metricEntries) {
-                const [key] = entry;
-                if (key === agentSentimentKey || key === agentAdoptedKey) {
-                    topEntries.push(entry);
-                }
-            }
+            sentimentMetrics =
+                metrics
+                    .get(agentSentimentKey)
+                    ?.filter(
+                        (v) =>
+                            Number.isFinite(v.step) &&
+                            Number.isFinite(v.value)
+                    ) ?? [];
+            adoptedMetrics =
+                metrics
+                    .get(agentAdoptedKey)
+                    ?.filter(
+                        (v) =>
+                            Number.isFinite(v.step) &&
+                            Number.isFinite(v.value)
+                    ) ?? [];
 
             metricEntries = metricEntries.filter(
                 ([key]) =>
@@ -283,21 +295,129 @@ export const RightPanel = observer(() => {
         } else {
             metricEntries = metricEntries.filter(
                 ([key]) =>
-                    key !== 'sentiment' &&
-                    key !== 'adopted' &&
-                    !key.startsWith('sentiment:') &&
-                    !key.startsWith('adopted:')
+                    !key.startsWith('sentiment') &&
+                    !key.startsWith('adopted')
             );
         }
 
-        metricEntries = [...topEntries, ...metricEntries];
+        const hasSentimentAdoption =
+            sentimentMetrics.length > 0 || adoptedMetrics.length > 0;
 
-        if (metricEntries.length === 0) {
+        if (!hasSentimentAdoption && metricEntries.length === 0) {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
         }
 
         return (
             <div style={{ overflow: 'auto', height: '70vh', width: '100%' }}>
+                {hasSentimentAdoption && (
+                    <div key="sentiment-adoption">
+                        <Plot
+                            data={[
+                                ...(sentimentMetrics.length > 0
+                                    ? [
+                                          {
+                                              x: sentimentMetrics.map(
+                                                  (v) => v.step
+                                              ),
+                                              y: sentimentMetrics.map(
+                                                  (v) => v.value
+                                              ),
+                                              type: 'scatter',
+                                              mode: 'lines+markers',
+                                              name: 'sentiment',
+                                              line: {
+                                                  width: 2,
+                                                  color: '#ff4d4f',
+                                              },
+                                              marker: {
+                                                  size: 6,
+                                                  color: '#ff4d4f',
+                                              },
+                                          },
+                                      ]
+                                    : []),
+                                ...(adoptedMetrics.length > 0
+                                    ? [
+                                          {
+                                              x: adoptedMetrics.map(
+                                                  (v) => v.step
+                                              ),
+                                              y: adoptedMetrics.map(
+                                                  (v) => v.value
+                                              ),
+                                              type: 'scatter',
+                                              mode: 'lines+markers',
+                                              name: 'adopted',
+                                              line: {
+                                                  width: 2,
+                                                  color: '#52c41a',
+                                              },
+                                              marker: {
+                                                  size: 6,
+                                                  color: '#52c41a',
+                                              },
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                            layout={{
+                                title: {
+                                    text: t(
+                                        'replay.chatbox.metrics.sentimentAdoption'
+                                    ),
+                                    font: {
+                                        size: 16,
+                                        family: 'Arial',
+                                    },
+                                },
+                                autosize: true,
+                                width: null,
+                                height: 200,
+                                margin: {
+                                    l: 30,
+                                    r: 10,
+                                    t: 30,
+                                    b: 30,
+                                },
+                                xaxis: {
+                                    title: {
+                                        text: t(
+                                            'replay.chatbox.metrics.step'
+                                        ),
+                                        font: {
+                                            size: 12,
+                                        },
+                                    },
+                                    showgrid: true,
+                                    gridcolor: '#f0f0f0',
+                                },
+                                yaxis: {
+                                    title: {
+                                        text: t(
+                                            'replay.chatbox.metrics.value'
+                                        ),
+                                        font: {
+                                            size: 12,
+                                        },
+                                    },
+                                    showgrid: true,
+                                    gridcolor: '#f0f0f0',
+                                },
+                                paper_bgcolor: 'rgba(0,0,0,0)',
+                                plot_bgcolor: 'rgba(0,0,0,0)',
+                            }}
+                            config={{
+                                responsive: true,
+                                displaylogo: false,
+                                modeBarButtonsToRemove: [
+                                    'lasso2d',
+                                    'select2d',
+                                ],
+                            }}
+                            style={{ width: '100%', height: '100%' }}
+                        />
+                    </div>
+                )}
                 {metricEntries.map(([key, values]) => {
                     const x = values.map(v => v.step);
                     const y = values.map(v => v.value);
