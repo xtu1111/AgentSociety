@@ -97,10 +97,6 @@ async def _find_started_experiment_by_id(
             status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found"
         )
     exp: Experiment = row[0]
-    if ExperimentStatus(exp.status) == ExperimentStatus.NOT_STARTED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Experiment not running"
-        )
     return exp
 
 
@@ -212,6 +208,17 @@ async def get_experiment_summary(
     async with request.app.state.get_db() as db:
         db = cast(AsyncSession, db)
         experiment = await _find_started_experiment_by_id(request, db, exp_id)
+
+        # 如果实验还没开始，直接返回空 summary
+        if ExperimentStatus(experiment.status) == ExperimentStatus.NOT_STARTED:
+            empty_summary = ApiExperimentSummary(
+                adoption_rate=0.0,
+                average_sentiment=0.0,
+                average_emotion={emo: 0.0 for emo in EMOTION_SCORE_MAP.keys()},
+                overall_average_emotion="neutral",
+                emotion_distribution={emo: 0 for emo in EMOTION_SCORE_MAP.keys()},
+            )
+            return ApiResponseWrapper(data=empty_summary)
 
         table_name = experiment.agent_status_tablename
         status_table, _ = agent_status(table_name)
