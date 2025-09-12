@@ -162,6 +162,7 @@ const Deck = observer((props: {
             getSize: 30,
             getPosition: d => d.coordinate,
             getColor: d => getSentimentColor(d.sentiment),
+            colorMode: 'replace',
         });
         // if (iconLayers.length > 0) {
         //     console.log("number of agents: ", iconLayers.length);
