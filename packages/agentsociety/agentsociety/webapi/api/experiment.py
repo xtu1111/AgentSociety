@@ -136,7 +136,8 @@ async def get_experiment_by_id(
     async with request.app.state.get_db() as db:
         db = cast(AsyncSession, db)
         stmt = select(Experiment).where(
-            Experiment.tenant_id.in_([tenant_id, "", "default"]), Experiment.id == exp_id
+            Experiment.tenant_id.in_([tenant_id, "", "default"]),
+            Experiment.id == exp_id,
         )
         result = await db.execute(stmt)
         row = result.first()
@@ -162,7 +163,8 @@ async def get_experiment_status_timeline_by_id(
     async with request.app.state.get_db() as db:
         db = cast(AsyncSession, db)
         stmt = select(Experiment).where(
-            Experiment.tenant_id.in_([tenant_id, "", "default"]), Experiment.id == exp_id
+            Experiment.tenant_id.in_([tenant_id, "", "default"]),
+            Experiment.id == exp_id,
         )
         result = await db.execute(stmt)
         row = result.first()
@@ -209,7 +211,7 @@ async def get_experiment_summary(
         db = cast(AsyncSession, db)
         experiment = await _find_started_experiment_by_id(request, db, exp_id)
 
-        # 如果实验还没开始，直接返回空 summary
+        # 如果实验还没开始，直接返回空 summary（统一格式）
         if ExperimentStatus(experiment.status) == ExperimentStatus.NOT_STARTED:
             empty_summary = ApiExperimentSummary(
                 adoption_rate=0.0,
@@ -219,6 +221,7 @@ async def get_experiment_summary(
                 emotion_distribution={emo: 0 for emo in EMOTION_SCORE_MAP.keys()},
             )
             return ApiResponseWrapper(data=empty_summary)
+
 
         table_name = experiment.agent_status_tablename
         status_table, _ = agent_status(table_name)
@@ -265,7 +268,11 @@ async def get_experiment_summary(
             adopted_val = status_data.get("adopted")
             if isinstance(adopted_val, (bool, int, float, str)):
                 try:
-                    adopted_flags[row.id] = bool(json.loads(str(adopted_val).lower())) if isinstance(adopted_val, str) else bool(adopted_val)
+                    adopted_flags[row.id] = (
+                        bool(json.loads(str(adopted_val).lower()))
+                        if isinstance(adopted_val, str)
+                        else bool(adopted_val)
+                    )
                 except Exception:
                     adopted_flags[row.id] = bool(adopted_val)
 
@@ -286,10 +293,14 @@ async def get_experiment_summary(
                     except Exception:
                         pass
             elif isinstance(emo_val, str):
-                emotion_distribution[str(emo_val).strip().lower()] += 1
+                raw_label = str(emo_val).strip()
+                norm_label = EMOTION_NORMALIZE_MAP.get(raw_label, raw_label).lower()
+                emotion_distribution[norm_label] += 1
 
         # Compute adoption and sentiment from metrics if available
-        has_metrics, metrics_by_key = await get_experiment_metrics_by_id(request, db, exp_id)
+        has_metrics, metrics_by_key = await get_experiment_metrics_by_id(
+            request, db, exp_id
+        )
         if has_metrics:
             for key, metrics in metrics_by_key.items():
                 if key.startswith("adopted:"):
@@ -584,7 +595,9 @@ async def export_experiment_data(
             zip_file.writestr("experiment.yaml", yaml_content)
 
             # Export metrics data as JSON
-            found, metrics_by_key = await get_experiment_metrics_by_id(request, db, exp_id)
+            found, metrics_by_key = await get_experiment_metrics_by_id(
+                request, db, exp_id
+            )
             if found:
                 serialized_metrics = serialize_metrics(metrics_by_key)
                 metrics_json = json.dumps(serialized_metrics, indent=2)
