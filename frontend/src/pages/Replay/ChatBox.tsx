@@ -10,6 +10,7 @@ import { Model, Survey as SurveyUI } from 'survey-react-ui';
 import { fetchCustom } from '../../components/fetch';
 import { useTranslation } from 'react-i18next';
 import Plot from 'react-plotly.js';
+import { type PlotData, type PlotType } from 'plotly.js';
 
 const roles: GetProp<typeof Bubble.List, 'roles'> = {
     self: {
@@ -322,7 +323,7 @@ export const RightPanel = observer(() => {
                                               y: sentimentMetrics.map(
                                                   (v) => v.value
                                               ),
-                                              type: 'scatter',
+                                              type: 'scatter' as PlotType,
                                               mode: 'lines+markers',
                                               name: 'sentiment',
                                               line: {
@@ -333,7 +334,7 @@ export const RightPanel = observer(() => {
                                                   size: 6,
                                                   color: '#ff4d4f',
                                               },
-                                          },
+                                          } as PlotData,
                                       ]
                                     : []),
                                 ...(adoptedMetrics.length > 0
@@ -345,7 +346,7 @@ export const RightPanel = observer(() => {
                                               y: adoptedMetrics.map(
                                                   (v) => v.value
                                               ),
-                                              type: 'scatter',
+                                              type: 'scatter' as PlotType,
                                               mode: 'lines+markers',
                                               name: 'adopted',
                                               line: {
@@ -356,7 +357,7 @@ export const RightPanel = observer(() => {
                                                   size: 6,
                                                   color: '#52c41a',
                                               },
-                                          },
+                                          } as PlotData,
                                       ]
                                     : []),
                             ]}
@@ -429,7 +430,7 @@ export const RightPanel = observer(() => {
                                     {
                                         x: x,
                                         y: y,
-                                        type: 'scatter',
+                                        type: 'scatter' as PlotType,
                                         mode: 'lines+markers',
                                         name: key,
                                         line: {
@@ -440,7 +441,7 @@ export const RightPanel = observer(() => {
                                             size: 6,
                                             color: '#1890ff'
                                         }
-                                    }
+                                    } as PlotData
                                 ]}
                                 layout={{
                                     title: {
