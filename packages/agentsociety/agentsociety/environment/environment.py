@@ -327,6 +327,10 @@ class Environment:
     def get_tick(self) -> int:
         return self._tick
 
+    def get_start_tick(self) -> int:
+        """Return the configured start tick of a day."""
+        return self._environment_config.start_tick
+
     @overload
     def get_datetime(self) -> tuple[int, int]: ...
     @overload

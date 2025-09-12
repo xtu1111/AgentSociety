@@ -1844,7 +1844,10 @@ class SimulationEngine:
                     if step.groups:
                         for group in step.groups:
                             if group.send_time is not None:
-                                target_tick = _parse_hhmm(group.send_time)
+                                start_tick = getattr(self.environment, "get_start_tick", lambda: 0)()
+                                target_tick = _parse_hhmm(group.send_time) - start_tick
+                                if target_tick < 0:
+                                    target_tick = 0
                                 current_tick = self.environment.get_tick()
                                 if current_tick < target_tick:
                                     await self.step(target_tick - current_tick)
@@ -1866,7 +1869,10 @@ class SimulationEngine:
                                     await self.send_intervention_message(payload, chosen)
                     else:
                         if step.send_time is not None:
-                            target_tick = _parse_hhmm(step.send_time)
+                            start_tick = getattr(self.environment, "get_start_tick", lambda: 0)()
+                            target_tick = _parse_hhmm(step.send_time) - start_tick
+                            if target_tick < 0:
+                                target_tick = 0
                             current_tick = self.environment.get_tick()
                             if current_tick < target_tick:
                                 await self.step(target_tick - current_tick)
