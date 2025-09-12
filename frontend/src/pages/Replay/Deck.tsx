@@ -68,33 +68,47 @@ const Deck = observer((props: {
     const agentList = Array.from(store.agents.values());
 
     const getSentiment = (status: any): number | undefined => {
-        if (typeof status === 'object' && status !== null) {
-            const val = (status as any)["sentiment"];
-            return typeof val === 'number' ? val : Number(val);
+        if (status === null || status === undefined) {
+            return undefined;
+        }
+        if (typeof status === 'number') {
+            return status;
         }
         if (typeof status === 'string') {
+            const num = Number(status);
+            if (!Number.isNaN(num)) {
+                return num;
+            }
             try {
-                const parsed = JSON.parse(status);
-                const val = parsed["sentiment"];
-                return typeof val === 'number' ? val : Number(val);
+                return getSentiment(JSON.parse(status));
             } catch (err) {
                 console.error('failed to parse status sentiment', err);
+                return undefined;
+            }
+        }
+        if (typeof status === 'object') {
+            if ('sentiment' in status) {
+                return getSentiment((status as any).sentiment);
+            }
+            if ('status' in status) {
+                return getSentiment((status as any).status);
             }
         }
         return undefined;
     };
 
     const getSentimentColor = (sentiment?: number): Color => {
+        const neutral = new Uint8Array([0, 255, 0, 255]);
         if (typeof sentiment !== 'number' || Number.isNaN(sentiment)) {
-            return [0, 255, 0, 255];
+            return neutral;
         }
         if (sentiment >= 0.2) {
-            return [0, 0, 255, 255];
+            return new Uint8Array([0, 0, 255, 255]);
         }
         if (sentiment <= -0.2) {
-            return [255, 0, 0, 255];
+            return new Uint8Array([255, 0, 0, 255]);
         }
-        return [0, 255, 0, 255];
+        return neutral;
     };
 
     if (curZoom > 10) {
