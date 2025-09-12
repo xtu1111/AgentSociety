@@ -345,6 +345,7 @@ class MarketingAgent(CitizenAgentBase):
 
         alpha = 0.6
         combined_sentiment = alpha * llm_sentiment + (1 - alpha) * sampled_sentiment
+        combined_sentiment = float(np.clip(combined_sentiment, -1, 1))
         combined_sentiment = float(np.clip(combined_sentiment, low, high))
 
         delta = combined_sentiment - sentiment
@@ -355,13 +356,15 @@ class MarketingAgent(CitizenAgentBase):
             new_adopted = True
         final_adopted = new_adopted
 
+        exposure += 1
+        await self.memory.status.update("exposure_count", exposure)
+        
         await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", canonical)
         await self.memory.status.update("thought", thought)
         await self.memory.status.update("adopted", final_adopted)
         await self.memory.status.update("attitude", canonical)
         await self.memory.status.update("current_need", need)
-        await self.memory.status.update("exposure_count", exposure + 1)
 
         if self.database_writer is not None:
             await self.database_writer.log_metric(
