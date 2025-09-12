@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Optional, cast
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
@@ -203,12 +204,30 @@ async def run_experiment(
 
     async with request.app.state.get_db() as db:
         db = cast(AsyncSession, db)
+        # record running experiment
         stmt = insert(RunningExperiment).values(
             tenant_id=tenant_id,
             id=uuid.UUID(experiment_id),
             callback_auth_token=auth_token,
         )
         await db.execute(stmt)
+
+        # create experiment record so it can be queried while running
+        stmt = insert(Experiment).values(
+            tenant_id=tenant_id,
+            id=uuid.UUID(experiment_id),
+            name=config.exp_name,
+            num_day=0,
+            status=ExperimentStatus.RUNNING,
+            cur_day=0,
+            cur_t=0.0,
+            config=config_base64,
+            error="",
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        await db.execute(stmt)
+
         await db.commit()
 
         await _record_experiment_bill(
@@ -230,15 +249,17 @@ async def run_experiment(
     )
 
     # Set up a callback function to handle task completion
-    def container_started(future):
+    def container_started(container_id: str) -> None:
+        logger.info(f"Container started with ID: {container_id}")
+
+    def _container_started_callback(future: asyncio.Future) -> None:
         try:
-            container_id = future.result()
-            logger.info(f"Container started with ID: {container_id}")
+            container_started(future.result())
         except Exception as e:
             logger.error(f"Error starting container: {e}")
 
     # Add callback
-    task.add_done_callback(container_started)
+    task.add_done_callback(_container_started_callback)
 
     logger.info("Successfully created experiment container task")
 
@@ -355,6 +376,7 @@ async def finish_experiment(
     request: Request,
     exp_id: str,
     callback_auth_token: str = Query(...),
+    status: ExperimentStatus = Query(ExperimentStatus.FINISHED),
 ):
     """Finish an experiment"""
     if request.app.state.read_only:
@@ -375,20 +397,24 @@ async def finish_experiment(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Running experiment not found",
             )
-        # 2. check the experiment is FINISHED or STOPPED
         tenant_id = running_experiment.tenant_id
+        # 2. update the experiment status
+        stmt = (
+            update(Experiment)
+            .where(Experiment.tenant_id == tenant_id, Experiment.id == exp_id)
+            .values(status=status, updated_at=datetime.now())
+        )
+        await db.execute(stmt)
+
         stmt = select(Experiment).where(
             Experiment.tenant_id == tenant_id,
             Experiment.id == exp_id,
-            Experiment.status.in_(
-                [ExperimentStatus.FINISHED, ExperimentStatus.STOPPED]
-            ),
         )
         experiment = (await db.execute(stmt)).scalar_one_or_none()
         if experiment is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Experiment is not finished or stopped",
+                detail="Experiment not found",
             )
         # 3. compute the bill
         await _compute_commercial_bill(request.app.state, db, experiment)

@@ -20,11 +20,21 @@ import errno
 
 from ..logger import get_logger
 
-__all__ = ["ProcessExecutor", "ExperimentLogNotFoundError"]
+__all__ = [
+    "ProcessExecutor",
+    "ExperimentLogNotFoundError",
+    "ExperimentNotRunningError",
+]
 
 
 class ExperimentLogNotFoundError(FileNotFoundError):
     """Raised when the experiment log file cannot be found."""
+
+    pass
+
+
+class ExperimentNotRunningError(RuntimeError):
+    """Raised when an experiment is not currently running."""
 
     pass
 
@@ -191,6 +201,8 @@ class ProcessExecutor:
             self._release_file_lock(lock_fd)
 
         get_logger().info(f"Created process: {process.pid} for experiment {exp_id}")
+
+        return str(process.pid)
 
     async def delete(self, tenant_id: str, exp_id: str) -> None:
         """Delete a running process.
