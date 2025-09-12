@@ -340,10 +340,11 @@ class MarketingAgent(CitizenAgentBase):
             self, profile, sentiment, adopted, content, friend_names, exposure
         )
         attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower())
-        if attitude_norm is None:
-            attitude_norm = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), "neutral")
-        emotion = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), attitude_norm)
-        low, high = EMOTION_SCORE_RANGE.get(attitude_norm, (-0.19, 0.19))
+        emotion_norm = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower())
+        canonical = emotion_norm or attitude_norm or "neutral"
+        emotion = canonical
+        attitude_norm = canonical
+        low, high = EMOTION_SCORE_RANGE.get(canonical, (-0.19, 0.19))
         new_sentiment = float(RNG.uniform(low, high))
         model = profile.get("share_model", "rule")
         if model != "llm":
