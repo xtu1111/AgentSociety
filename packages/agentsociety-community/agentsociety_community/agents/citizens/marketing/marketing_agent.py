@@ -1,4 +1,3 @@
-# packages/agentsociety-community/agentsociety_community/agents/citizens/marketing/marketing_agent.py
 """Marketing agent template for diffusion experiments.
 
 Agents update their sentiment toward a product when receiving
@@ -34,22 +33,44 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 # coefficient for interest similarity boost
 BETA = 0.5
 
-# mapping from emotion labels to numeric values for logging
-EMOTION_SCORE_MAP = {
-    "interested": 0.6,
-    "curious": 0.4,
-    "relaxed": 0.2,
-    "neutral": 0.0,
-    "dislike": -0.6,
+# canonical emotion categories and numeric sentiment scores
+EMOTION_NORMALIZE_MAP = {
+    # English
+    "interested": "interested",
+    "curious": "curious",
+    "relaxed": "relaxed",
+    "neutral": "neutral",
+    "uninterested": "uninterested",
+    "skeptical": "skeptical",
+    "dislike": "dislike",
+    # Japanese
+    "興味津々": "interested",
+    "好奇心": "curious",
+    "リラックス": "relaxed",
+    "中立": "neutral",
+    "無関心": "uninterested",
+    "懐疑的": "skeptical",
+    "嫌い": "dislike",
+    # Chinese
+    "感兴趣": "interested",
+    "好奇": "curious",
+    "放松": "relaxed",
+    "中立": "neutral",
+    "不感兴趣": "uninterested",
+    "怀疑": "skeptical",
+    "讨厌": "dislike",
 }
 
-# fallback mapping from attitude/emotion labels to sentiment values
-ATTITUDE_SENTIMENT_MAP = {
-    "興味あり": 0.4,
-    "興味深い": 0.6,
-    "無関心": 0.0,
-    "嫌い": -0.6,
+EMOTION_SCORE_MAP = {
+    "dislike": -0.6,
+    "skeptical": -0.4,
+    "uninterested": -0.2,
+    "neutral": 0.0,
+    "relaxed": 0.2,
+    "curious": 0.4,
+    "interested": 0.6,
 }
+
 
 class MarketingAgentConfig(AgentParams):
     """Configuration options for :class:`MarketingAgent`."""

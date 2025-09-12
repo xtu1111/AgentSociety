@@ -42,9 +42,12 @@ export default {
         view: "View"
     },
     emotion: {
-        interested: "Interested",
-        curious: "Curious",
-        neutral: "Neutral",
-        relaxed: "Relaxed"
+        interested: 'Interested',
+        curious: 'Curious',
+        relaxed: 'Relaxed',
+        neutral: 'Neutral',
+        uninterested: 'Uninterested',
+        skeptical: 'Skeptical',
+        dislike: 'Dislike',
     }
 };

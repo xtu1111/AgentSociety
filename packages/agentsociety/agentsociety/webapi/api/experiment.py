@@ -37,49 +37,42 @@ __all__ = ["router"]
 router = APIRouter(tags=["experiments"])
 
 
-# Mapping between numeric emotion score and canonical label
-EMOTION_VALUE_TO_LABEL = {
-    0.6: "interested",
-    0.4: "curious",
-    0.2: "relaxed",
-    0.0: "neutral",
-    -0.6: "dislike",
-}
-
-# Mapping raw emotion labels to canonical categories
-EMOTION_LABEL_MAP = {
-    # interested
-    "interest": "interested",
+# emotion normalization and scoring
+EMOTION_NORMALIZE_MAP = {
+    # English
     "interested": "interested",
-    "興味深い": "interested",
-    # curious
     "curious": "curious",
-    "好奇": "curious",
-    # neutral
-    "neutral": "neutral",
-    "普通": "neutral",
-    "中立": "neutral",
-    "ニュートラル": "neutral",
-    # relaxed
     "relaxed": "relaxed",
-    "relax": "relaxed",
-    "calm": "relaxed",
-    "リラックス": "relaxed",
-    "落ち着く": "relaxed",
-    "落ち着き": "relaxed",
-    "穏やか": "relaxed",
-    # dislike
+    "neutral": "neutral",
+    "uninterested": "uninterested",
+    "skeptical": "skeptical",
     "dislike": "dislike",
+    # Japanese
+    "興味津々": "interested",
+    "好奇心": "curious",
+    "リラックス": "relaxed",
+    "中立": "neutral",
+    "無関心": "uninterested",
+    "懐疑的": "skeptical",
     "嫌い": "dislike",
+    # Chinese
+    "感兴趣": "interested",
+    "好奇": "curious",
+    "放松": "relaxed",
+    "中立": "neutral",
+    "不感兴趣": "uninterested",
+    "怀疑": "skeptical",
+    "讨厌": "dislike",
 }
 
-# Polarity values for sorting and overall average calculations
-EMOTION_POLARITY = {
-    "interested": 0.6,
-    "curious": 0.4,
-    "relaxed": 0.2,
-    "neutral": 0.0,
+EMOTION_SCORE_MAP = {
     "dislike": -0.6,
+    "skeptical": -0.4,
+    "uninterested": -0.2,
+    "neutral": 0.0,
+    "relaxed": 0.2,
+    "curious": 0.4,
+    "interested": 0.6,
 }
 
 

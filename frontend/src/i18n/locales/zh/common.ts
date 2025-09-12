@@ -42,9 +42,12 @@ export default {
         view: "查看"
     },
     emotion: {
-        interested: "感兴趣",
-        curious: "好奇",
-        neutral: "中立",
-        relaxed: "放松"
+        interested: '感兴趣',
+        curious: '好奇',
+        relaxed: '放松',
+        neutral: '中立',
+        uninterested: '不感兴趣',
+        skeptical: '怀疑',
+        dislike: '讨厌',
     }
 };
