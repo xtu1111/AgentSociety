@@ -107,29 +107,69 @@ export const RightPanel = observer(() => {
     const renderDialogs = (type: number) => {
         const dialogs = agentDialogs.filter(m => m.type === type);
 
-        // remove duplicate messages by using a set of keys
-        const uniqueDialogs: AgentDialog[] = [];
-        const seen = new Set<string>();
+        // remove duplicate messages and preserve receiver info when available
+        const uniqueMap = new Map<
+            string,
+            AgentDialog & { receiverId?: number; receiverName?: string }
+        >();
         for (const m of dialogs) {
             let content = m.content;
+            let receiverId: number | undefined;
+            let receiverName: string | undefined;
             try {
                 const contentJson = JSON.parse(m.content);
                 if (contentJson.content !== undefined) {
                     content = contentJson.content;
                 }
+                if (contentJson.receiver_id !== undefined) {
+                    receiverId = parseInt(contentJson.receiver_id);
+                }
+                if (contentJson.receiver_name !== undefined) {
+                    receiverName = contentJson.receiver_name;
+                }
+                if (contentJson.receiver !== undefined) {
+                    receiverName = contentJson.receiver;
+                }
             } catch {
-                const match = m.content.match(/^[{]\s*['"]?content['"]?\s*:\s*['"]([^'"]*)['"]/);
+                const match = m.content.match(
+                    /^[{]\s*['"]?content['"]?\s*:\s*['"]([^'"]*)['"]/,
+                );
                 if (match) {
                     content = match[1];
                 }
+                const recIdMatch = m.content.match(
+                    /['"]receiver_id['"]\s*:\s*['"]?(\d+)/,
+                );
+                if (recIdMatch) {
+                    receiverId = parseInt(recIdMatch[1]);
+                }
+                const recNameMatch = m.content.match(
+                    /['"]receiver_name['"]\s*:\s*['"]([^'"]+)['"]/,
+                );
+                if (recNameMatch) {
+                    receiverName = recNameMatch[1];
+                }
+                const recMatch = m.content.match(
+                    /['"]receiver['"]\s*:\s*['"]([^'"]+)['"]/,
+                );
+                if (recMatch) {
+                    receiverName = recMatch[1];
+                }
             }
             const key = `${m.day}-${m.t}-${m.type}-${m.speaker}-${content}`;
-            if (seen.has(key)) {
+            const existing = uniqueMap.get(key);
+            if (existing) {
+                if (receiverId !== undefined && existing.receiverId === undefined) {
+                    existing.receiverId = receiverId;
+                }
+                if (receiverName && !existing.receiverName) {
+                    existing.receiverName = receiverName;
+                }
                 continue;
             }
-            seen.add(key);
-            uniqueDialogs.push({ ...m, content });
+            uniqueMap.set(key, { ...m, content, receiverId, receiverName });
         }
+        const uniqueDialogs = Array.from(uniqueMap.values());
 
         // track the last other-agent speaker for displaying the receiver
         let lastOtherSpeaker: number | undefined;
@@ -139,9 +179,15 @@ export const RightPanel = observer(() => {
             if (m.type === 1) {
                 if (m.speaker === "" || m.speaker === agent?.id.toString()) {
                     let toName =
-                        lastOtherSpeaker !== undefined
-                            ? store.agents.get(lastOtherSpeaker)?.name
-                            : undefined;
+                        m.receiverId !== undefined
+                            ? store.agents.get(m.receiverId)?.name
+                            : m.receiverName;
+                    if (!toName) {
+                        toName =
+                            lastOtherSpeaker !== undefined
+                                ? store.agents.get(lastOtherSpeaker)?.name
+                                : undefined;
+                    }
                     if (!toName) {
                         for (let j = i + 1; j < uniqueDialogs.length; j++) {
                             const next = uniqueDialogs[j];

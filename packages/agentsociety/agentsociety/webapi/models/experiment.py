@@ -15,6 +15,7 @@ __all__ = [
     "ApiExperiment",
     "ApiTime",
     "ApiExperimentSummary",
+    "ApiExperimentAnalysis",
     "RunningExperiment",
 ]
 
@@ -92,3 +93,9 @@ class ApiExperimentSummary(BaseModel):
     overall_average_emotion: Optional[str] = None
     emotion_distribution: Dict[str, int]
     analysis_text: Optional[str] = None
+
+
+class ApiExperimentAnalysis(BaseModel):
+    """LLM-generated analysis for an experiment"""
+
+    analysis_text: str

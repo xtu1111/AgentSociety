@@ -29,6 +29,8 @@ const ResultSummary: React.FC = () => {
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [summary, setSummary] = useState<ExperimentSummary>();
+    const [analysisLoading, setAnalysisLoading] = useState(false);
+    const [analysisText, setAnalysisText] = useState<string | null>(null);
 
     const loadSummary = async () => {
         if (!store.expID) {
@@ -39,6 +41,9 @@ const ResultSummary: React.FC = () => {
             const res = await fetchCustom(`/api/experiments/${store.expID}/summary`);
             const data = await res.json();
             setSummary(data.data as ExperimentSummary);
+            if (data.data.analysis_text) {
+                setAnalysisText(data.data.analysis_text);
+            }
         } catch (err) {
             console.error("failed to fetch summary", err);
         } finally {
@@ -140,11 +145,32 @@ const ResultSummary: React.FC = () => {
                                 })()}
                             </ul>
                         </div>
-                        {summary.analysis_text && (
+                        {analysisText ? (
                             <div>
                                 <p>{t("replay.summary.analysisTitle")}</p>
-                                <p>{summary.analysis_text}</p>
+                                <p>{analysisText}</p>
                             </div>
+                        ) : (
+                            <Button
+                                onClick={async () => {
+                                    if (!store.expID) return;
+                                    setAnalysisLoading(true);
+                                    try {
+                                        const res = await fetchCustom(`/api/experiments/${store.expID}/analysis`);
+                                        const data = await res.json();
+                                        setAnalysisText(data.data?.analysis_text || "No analysis available for this experiment.");
+                                    } catch (err) {
+                                        console.error("failed to fetch analysis", err);
+                                        setAnalysisText("No analysis available for this experiment.");
+                                    } finally {
+                                        setAnalysisLoading(false);
+                                    }
+                                }}
+                                loading={analysisLoading}
+                                style={{ marginTop: 8 }}
+                            >
+                                {t("replay.summary.generateAnalysis")}
+                            </Button>
                         )}
                         <Button onClick={exportJSON} style={{ marginRight: 8 }}>
                             {t("replay.summary.exportJson")}

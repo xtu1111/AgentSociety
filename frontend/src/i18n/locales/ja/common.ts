@@ -53,6 +53,7 @@ export default {
     replay: {
         summary: {
             analysisTitle: 'AIによる分析',
+            generateAnalysis: 'AI分析を生成',
         },
     },
 };

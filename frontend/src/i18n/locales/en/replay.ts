@@ -66,6 +66,7 @@ export default {
         averageEmotion: "Average Emotion",
         emotionDistribution: "Emotion Distribution",
         analysisTitle: "AI Analysis",
+        generateAnalysis: "Generate AI Analysis",
         exportJson: "Export JSON",
         exportCsv: "Export CSV"
     }

@@ -27,6 +27,7 @@ from ..models.experiment import (
     Experiment,
     ExperimentStatus,
     ApiExperimentSummary,
+    ApiExperimentAnalysis,
 )
 from ..models.metric import ApiMetric, metric
 from .const import DEMO_USER_ID
@@ -220,7 +221,7 @@ async def get_experiment_summary(
                 average_emotion={emo: 0.0 for emo in EMOTION_SCORE_MAP.keys()},
                 overall_average_emotion="neutral",
                 emotion_distribution={emo: 0 for emo in EMOTION_SCORE_MAP.keys()},
-                analysis_text="No analysis available for this experiment.",
+                analysis_text=None,
             )
             return ApiResponseWrapper(data=empty_summary)
 
@@ -372,9 +373,35 @@ async def get_experiment_summary(
         else:
             average_emotion = {emo: 0.0 for emo in EMOTION_ORDER}
             overall_average_emotion = "neutral"
-        analysis_text = "No analysis available for this experiment."
-        try:
+        summary = ApiExperimentSummary(
+            adoption_rate=adoption_rate,
+            average_sentiment=avg_sentiment,
+            average_emotion=average_emotion,                 # 最终快照比例
+            overall_average_emotion=overall_average_emotion, # 主导情绪
+            emotion_distribution=cumulative_distribution,    # 累计趋势
+            analysis_text=None,
+        )
+        return ApiResponseWrapper(data=summary)
+
+
+@router.get("/experiments/{exp_id}/analysis")
+async def get_experiment_analysis(
+    request: Request,
+    exp_id: uuid.UUID,
+) -> ApiResponseWrapper[ApiExperimentAnalysis]:
+    """Generate an LLM-based analysis for an experiment"""
+
+    summary_resp = await get_experiment_summary(request, exp_id)
+    summary = summary_resp.data
+
+    analysis_text = "No analysis available for this experiment."
+    try:
+        async with request.app.state.get_db() as db:
+            db = cast(AsyncSession, db)
+            experiment = await _find_started_experiment_by_id(request, db, exp_id)
+
             dialog_table, _ = agent_dialog(experiment.agent_dialog_tablename)
+            status_table, _ = agent_status(experiment.agent_status_tablename)
             prompt_table, _ = global_prompt(experiment.global_prompt_tablename)
 
             dialog_rows = (await db.execute(select(dialog_table.c.content).limit(5))).all()
@@ -398,10 +425,10 @@ async def get_experiment_summary(
 
             sample_texts = "\n".join(samples)
             prompt = f"""Here is the experiment summary:
-Adoption Rate: {adoption_rate}
-Average Sentiment: {avg_sentiment}
-Overall Average Emotion: {overall_average_emotion}
-Emotion Distribution: {cumulative_distribution}
+Adoption Rate: {summary.adoption_rate}
+Average Sentiment: {summary.average_sentiment}
+Overall Average Emotion: {summary.overall_average_emotion}
+Emotion Distribution: {summary.emotion_distribution}
 
 Here are some excerpts from the simulation (dialogs, agent internal states, system prompts):
 {sample_texts}
@@ -416,18 +443,10 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
             )
             if response.choices and response.choices[0].message.content:
                 analysis_text = response.choices[0].message.content.strip()
-        except Exception:
-            analysis_text = "No analysis available for this experiment."
+    except Exception:
+        analysis_text = "No analysis available for this experiment."
 
-        summary = ApiExperimentSummary(
-            adoption_rate=adoption_rate,
-            average_sentiment=avg_sentiment,
-            average_emotion=average_emotion,                 # 最终快照比例
-            overall_average_emotion=overall_average_emotion, # 主导情绪
-            emotion_distribution=cumulative_distribution,    # 累计趋势
-            analysis_text=analysis_text,
-        )
-        return ApiResponseWrapper(data=summary)
+    return ApiResponseWrapper(data=ApiExperimentAnalysis(analysis_text=analysis_text))
 
 
 @router.delete("/experiments/{exp_id}", status_code=status.HTTP_200_OK)
