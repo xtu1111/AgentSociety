@@ -224,7 +224,11 @@ async def get_experiment_summary(
         ).subquery()
 
         stmt = select(subquery.c.id, subquery.c.status).where(subquery.c.rn == 1)
-        rows = (await db.execute(stmt)).all()
+        try:
+            rows = (await db.execute(stmt)).all()
+        except Exception:
+            logging.warning("status table %s missing", table_name)
+            rows = []
 
         total = len(rows)
         # initialise adoption flags for every agent so the denominator
@@ -437,7 +441,9 @@ async def get_experiment_metrics_by_id(
     # Get metrics from the metric table
     table_name = experiment.metric_tablename
     
-    # Execute query to get metrics data
+    # Execute query to get metrics data; when the metrics table doesn't yet
+    # exist (e.g. runs with no metrics recorded), return no metrics instead of
+    # raising an error so the summary endpoint can still respond.
     query = text(
         f"""
         SELECT key, value, step
@@ -445,7 +451,12 @@ async def get_experiment_metrics_by_id(
         ORDER BY step
         """
     )
-    results = await db.execute(query)
+    try:
+        results = await db.execute(query)
+    except Exception:
+        logging.warning("metrics table %s missing", table_name)
+        return False, {}
+
     rows = results.all()
 
     if not rows:
