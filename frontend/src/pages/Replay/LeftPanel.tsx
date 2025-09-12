@@ -99,15 +99,22 @@ const InfoPanel = observer(() => {
                                         ? t(`emotion.${v}`, { defaultValue: v })
                                         : v;
                                 const displayVal =
-                                    typeof translated === 'boolean' ? String(translated) : translated;
+                                    typeof translated === 'boolean'
+                                        ? String(translated)
+                                        : translated;
+
                                 return (
                                     <Tooltip title={t('replay.infoPanel.showAsHeatmap')} key={k}>
                                         <Flex
-                                            className={store.heatmapKeyInStatus === k ? 'left-info-block selected' : 'left-info-block'}
+                                            className={
+                                                store.heatmapKeyInStatus === k
+                                                    ? 'left-info-block selected'
+                                                    : 'left-info-block'
+                                            }
                                             justify='space-between'
                                             key={k}
                                             onClick={() => {
-                                                if (typeof v !== "number") {
+                                                if (typeof v !== 'number') {
                                                     return;
                                                 }
                                                 if (store.heatmapKeyInStatus === k) {
@@ -115,9 +122,12 @@ const InfoPanel = observer(() => {
                                                     return;
                                                 }
                                                 store.setHeatmapKeyInStatus(k);
-                                            }}>
-                                            <span style={{ fontWeight: 400, color: "#909399" }}>{getTranslatedKey(k)}:&nbsp;&nbsp;</span>
-                                            <span style={{ fontWeight: 600, color: "#007AFF" }}>{displayVal}</span>
+                                            }}
+                                        >
+                                            <span style={{ fontWeight: 400, color: '#909399' }}>
+                                                {getTranslatedKey(k)}:&nbsp;&nbsp;
+                                            </span>
+                                            <span style={{ fontWeight: 600, color: '#007AFF' }}>{displayVal}</span>
                                         </Flex>
                                     </Tooltip>
                                 );
