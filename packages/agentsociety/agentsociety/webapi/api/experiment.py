@@ -75,6 +75,10 @@ EMOTION_SCORE_MAP = {
     "interested": 0.6,
 }
 
+# Backward compatibility: older summary code referenced EMOTION_POLARITY.
+# Map the name to the current score table so legacy imports still work.
+EMOTION_POLARITY = EMOTION_SCORE_MAP
+
 # reverse lookup for mapping numeric emotion scores back to canonical labels
 EMOTION_VALUE_TO_LABEL = {v: k for k, v in EMOTION_SCORE_MAP.items()}
 
