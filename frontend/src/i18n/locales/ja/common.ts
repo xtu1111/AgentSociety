@@ -44,12 +44,11 @@ export default {
     emotion: {
         interested: '興味津々',
         curious: '好奇',
-        relaxed: 'リラックス'
+        relaxed: 'リラックス',
         neutral: '中立',
         uninterested: '無関心',
         skeptical: '懐疑的',
-        dislike: '嫌い',
-    }
+        dislike: '嫌い'
     },
     replay: {
         summary: {
