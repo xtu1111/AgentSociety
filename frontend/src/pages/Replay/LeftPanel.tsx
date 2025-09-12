@@ -92,47 +92,46 @@ const InfoPanel = observer(() => {
                             <Flex className='left-info-block-status' justify='space-between'>
                                 <span style={{ fontWeight: 600, color: "#007AFF" }}>{agent.status}</span>
                             </Flex>
-                        ) : (
-                            Object.entries(agent.status).map(([k, v]) => (
-                                const translated =
-                                    (k === 'emotion' || k === 'attitude') && typeof v === 'string'
-                                        ? t(`emotion.${v}`, { defaultValue: v })
-                                        : v;
-                                const displayVal =
-                                    typeof translated === 'boolean'
-                                        ? String(translated)
-                                        : translated;
+                        ) : Object.entries(agent.status).map(([k, v]) => {
+                            const translated =
+                                (k === 'emotion' || k === 'attitude') && typeof v === 'string'
+                                    ? t(`emotion.${v}`, { defaultValue: v })
+                                    : v;
+                            const displayVal =
+                                typeof translated === 'boolean'
+                                    ? String(translated)
+                                    : translated;
 
-                                return (
-                                    <Tooltip title={t('replay.infoPanel.showAsHeatmap')} key={k}>
-                                        <Flex
-                                            className={
-                                                store.heatmapKeyInStatus === k
-                                                    ? 'left-info-block selected'
-                                                    : 'left-info-block'
+                            return (
+                                <Tooltip title={t('replay.infoPanel.showAsHeatmap')} key={k}>
+                                    <Flex
+                                        className={
+                                            store.heatmapKeyInStatus === k
+                                                ? 'left-info-block selected'
+                                                : 'left-info-block'
+                                        }
+                                        justify='space-between'
+                                        key={k}
+                                        onClick={() => {
+                                            if (typeof v !== 'number') {
+                                                return;
                                             }
-                                            justify='space-between'
-                                            key={k}
-                                            onClick={() => {
-                                                if (typeof v !== 'number') {
-                                                    return;
-                                                }
-                                                if (store.heatmapKeyInStatus === k) {
-                                                    store.setHeatmapKeyInStatus(undefined);
-                                                    return;
-                                                }
-                                                store.setHeatmapKeyInStatus(k);
-                                            }}
-                                        >
-                                            <span style={{ fontWeight: 400, color: '#909399' }}>
-                                                {getTranslatedKey(k)}:&nbsp;&nbsp;
-                                            </span>
-                                            <span style={{ fontWeight: 600, color: '#007AFF' }}>{displayVal}</span>
-                                        </Flex>
-                                    </Tooltip>
-                                );
-                            })
-                        ))}
+                                            if (store.heatmapKeyInStatus === k) {
+                                                store.setHeatmapKeyInStatus(undefined);
+                                                return;
+                                            }
+                                            store.setHeatmapKeyInStatus(k);
+                                        }}
+                                    >
+                                        <span style={{ fontWeight: 400, color: '#909399' }}>
+                                            {getTranslatedKey(k)}:&nbsp;&nbsp;
+                                        </span>
+                                        <span style={{ fontWeight: 600, color: '#007AFF' }}>{displayVal}</span>
+                                    </Flex>
+                                </Tooltip>
+                            );
+                        })
+                        )}
                     </Flex>
                 </Flex>
             </Flex>}
