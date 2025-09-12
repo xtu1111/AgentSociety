@@ -35,15 +35,12 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 BETA = 0.5
 
 # mapping from emotion labels to numeric values for logging
-EMOTION_SCORES = {
-    "happiness": 1.0,
-    "happy": 1.0,
-    "joy": 1.0,
+EMOTION_SCORE_MAP = {
+    "interested": 0.6,
+    "curious": 0.4,
+    "relaxed": 0.2,
     "neutral": 0.0,
-    "sadness": -1.0,
-    "sad": -1.0,
-    "anger": -0.5,
-    "angry": -0.5,
+    "dislike": -0.6,
 }
 
 # fallback mapping from attitude/emotion labels to sentiment values
@@ -60,9 +57,12 @@ class MarketingAgentConfig(AgentParams):
     max_forwards: int = Field(
         default=5, description="Maximum number of friends to forward messages to"
     )
-    adoption_threshold: float = Field(
+    sentiment_adoption_threshold: float = Field(
         default=0.6,
-        description="Minimum sentiment required before automatically adopting",
+        description=(
+            "Minimum sentiment required before automatically adopting based on "
+            "their aggregate sentiment"
+        ),
     )
 
 def _extract_text(raw: str) -> str:
@@ -268,10 +268,14 @@ class MarketingAgent(CitizenAgentBase):
         self.max_forwards = (
             agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
         )
-        self.adoption_threshold = (
-            agent_params.adoption_threshold
-            if agent_params and hasattr(agent_params, "adoption_threshold")
-            else 0.6
+        self.sentiment_adoption_threshold = (
+            agent_params.sentiment_adoption_threshold
+            if agent_params and hasattr(agent_params, "sentiment_adoption_threshold")
+            else (
+                agent_params.adoption_threshold
+                if agent_params and hasattr(agent_params, "adoption_threshold")
+                else 0.6
+            )
         )
 
     async def init(self) -> None:
@@ -319,20 +323,21 @@ class MarketingAgent(CitizenAgentBase):
         delta = new_sentiment - sentiment
         fatigue = float(np.exp(-0.3 * (exposure - 1)))
         effective_sentiment = sentiment + delta * fatigue
-        if not new_adopted and effective_sentiment >= self.adoption_threshold:
+        if not new_adopted and effective_sentiment >= self.sentiment_adoption_threshold:
             new_adopted = True
+        final_adopted = new_adopted
         await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", emotion)
         await self.memory.status.update("thought", thought)
-        await self.memory.status.update("adopted", new_adopted)
+        await self.memory.status.update("adopted", final_adopted)
         await self.memory.status.update("attitude", attitude)
         await self.memory.status.update("current_need", need)
         if self.database_writer is not None:
-            emotion_score = EMOTION_SCORES.get(emotion.strip().lower(), 0.0)
+            emotion_score = EMOTION_SCORE_MAP.get(emotion.strip().lower(), 0.0)
             await self.database_writer.log_metric(
                 [
                     (f"sentiment:{self.id}", float(effective_sentiment), exposure),
-                    (f"adopted:{self.id}", 1.0 if new_adopted else 0.0, exposure),
+                    (f"adopted:{self.id}", 1.0 if final_adopted else 0.0, exposure),
                     (f"emotion:{self.id}", float(emotion_score), exposure),
                 ]
             )

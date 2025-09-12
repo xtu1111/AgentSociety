@@ -40,5 +40,11 @@ export default {
         metadataTitle: "基本信息",
         basicInfo: "基本信息",
         view: "查看"
+    },
+    emotion: {
+        interested: "感兴趣",
+        curious: "好奇",
+        neutral: "中立",
+        relaxed: "放松"
     }
-}; 
+};

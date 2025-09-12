@@ -29,6 +29,7 @@ import enProfile from './locales/en/profile';
 import zhProfile from './locales/zh/profile';
 import enExperiment from './locales/en/experiment';
 import zhExperiment from './locales/zh/experiment';
+import jaCommon from './locales/ja/common';
 
 // Combine translations
 const resources = {
@@ -64,6 +65,11 @@ const resources = {
             template: zhTemplate,
             profile: zhProfile,
             experiment: zhExperiment,
+        }
+    },
+    ja: {
+        translation: {
+            ...jaCommon
         }
     }
 };

@@ -5,6 +5,13 @@ import { StoreContext } from "./store";
 import { ExperimentSummary } from "./components/type";
 import { fetchCustom } from "../../components/fetch";
 
+    const emotionLabels: Record<string, string> = {
+        interested: t('emotion.interested'),
+        curious: t('emotion.curious'),
+        neutral: t('emotion.neutral'),
+        relaxed: t('emotion.relaxed')
+    };
+
 const ResultSummary: React.FC = () => {
     const { t } = useTranslation();
     const store = useContext(StoreContext);
@@ -98,7 +105,7 @@ const ResultSummary: React.FC = () => {
                                 <p>{t("replay.summary.averageEmotion")}</p>
                                 <ul>
                                     {Object.entries(summary.average_emotion).map(([k, v]) => (
-                                        <li key={k}>{k}: {typeof v === 'number' ? v.toFixed(2) : '—'}</li>
+                                        <li key={k}>{emotionLabels[k] ?? k}: {typeof v === 'number' ? v.toFixed(2) : '—'}</li>
                                     ))}
                                 </ul>
                             </div>
@@ -111,7 +118,7 @@ const ResultSummary: React.FC = () => {
                                     return Object.entries(summary.emotion_distribution).map(([k, v]) => {
                                         const pct = total ? ((v / total) * 100).toFixed(1) : '0';
                                         return (
-                                            <li key={k}>{k}: {v} ({pct}%)</li>
+                                            <li key={k}>{emotionLabels[k] ?? k}: {v} ({pct}%)</li>
                                         );
                                     });
                                 })()}

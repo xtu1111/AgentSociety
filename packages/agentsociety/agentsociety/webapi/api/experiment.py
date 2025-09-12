@@ -40,22 +40,47 @@ router = APIRouter(tags=["experiments"])
 
 # Mapping between numeric emotion score and canonical label
 EMOTION_VALUE_TO_LABEL = {
-    1.0: "happiness",
+    0.6: "interested",
+    0.4: "curious",
+    0.2: "relaxed",
     0.0: "neutral",
-    -1.0: "sadness",
-    -0.5: "anger",
+    -0.6: "dislike",
+}
+
+# Mapping raw emotion labels to canonical categories
+EMOTION_LABEL_MAP = {
+    # interested
+    "interest": "interested",
+    "interested": "interested",
+    "興味深い": "interested",
+    # curious
+    "curious": "curious",
+    "好奇": "curious",
+    # neutral
+    "neutral": "neutral",
+    "普通": "neutral",
+    "中立": "neutral",
+    "ニュートラル": "neutral",
+    # relaxed
+    "relaxed": "relaxed",
+    "relax": "relaxed",
+    "calm": "relaxed",
+    "リラックス": "relaxed",
+    "落ち着く": "relaxed",
+    "落ち着き": "relaxed",
+    "穏やか": "relaxed",
+    # dislike
+    "dislike": "dislike",
+    "嫌い": "dislike",
 }
 
 # Polarity values for sorting and overall average calculations
 EMOTION_POLARITY = {
-    "happiness": 1.0,
-    "happy": 1.0,
-    "joy": 1.0,
+    "interested": 0.6,
+    "curious": 0.4,
+    "relaxed": 0.2,
     "neutral": 0.0,
-    "sadness": -1.0,
-    "sad": -1.0,
-    "anger": -0.5,
-    "angry": -0.5,
+    "dislike": -0.6,
 }
 
 
@@ -268,17 +293,18 @@ async def get_experiment_summary(
                     except Exception:
                         continue
                 elif key.startswith("emotion:"):
-                    try:
-                        val = float(metrics[-1].value)
-                    except Exception:
-                        continue
-                    label = EMOTION_VALUE_TO_LABEL.get(val)
-                    if label is None:
-                        label = str(val)
-                    label = str(label).strip().lower()
-                    emotion_distribution[label] += 1
-                    emotion_sums[label] += val
-                    emotion_counts[label] += 1
+                    for m in metrics:
+                        try:
+                            val = float(m.value)
+                        except Exception:
+                            continue
+                        label = EMOTION_VALUE_TO_LABEL.get(round(val, 1))
+                        if label is None:
+                            label = str(round(val, 1))
+                        label = str(label).strip().lower()
+                        emotion_distribution[label] += 1
+                        emotion_sums[label] += val
+                        emotion_counts[label] += 1
 
         adoption_rate = (
             sum(1 for v in adopted_flags.values() if v) / len(adopted_flags)

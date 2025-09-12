@@ -40,5 +40,11 @@ export default {
         metadataTitle: "Basic Information",
         basicInfo: "Basic Information",
         view: "View"
+    },
+    emotion: {
+        interested: "Interested",
+        curious: "Curious",
+        neutral: "Neutral",
+        relaxed: "Relaxed"
     }
-}; 
+};
