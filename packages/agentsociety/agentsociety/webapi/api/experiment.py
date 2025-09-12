@@ -287,9 +287,11 @@ async def get_experiment_summary(
             if isinstance(emo_val, dict):
                 for k, v in emo_val.items():
                     try:
-                        label = str(k).strip().lower()
-                        emotion_sums[label] += float(v)
-                        emotion_counts[label] += 1
+                        label = str(k).strip()
+                        norm_label = EMOTION_NORMALIZE_MAP.get(label, label).lower()
+                        emotion_sums[norm_label] += float(v)
+                        emotion_counts[norm_label] += 1
+                        emotion_distribution[norm_label] += 1
                     except Exception:
                         pass
             elif isinstance(emo_val, str):
@@ -342,7 +344,7 @@ async def get_experiment_summary(
         ]
 
         # 1) 全程累计的分布 (趋势)
-        cumulative_distribution = dict(emotion_distribution)
+        cumulative_distribution = {emo: emotion_distribution.get(emo, 0) for emo in EMOTION_SCORE_MAP.keys()}
 
         # 2) 每个 agent 最后一次状态 → 计算比例 (最终快照)
         final_distribution = {emo: 0 for emo in EMOTION_ORDER}
