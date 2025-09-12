@@ -324,7 +324,7 @@ class MarketingAgent(CitizenAgentBase):
 
         (
             llm_sentiment,
-            new_adopted,
+            _llm_adopted,
             say,
             llm_share,
             suggested,
@@ -343,6 +343,7 @@ class MarketingAgent(CitizenAgentBase):
         low, high = EMOTION_SCORE_RANGE.get(canonical, (-0.19, 0.19))
         sampled_sentiment = float(RNG.uniform(low, high))
 
+        # -------- sentiment update --------
         alpha = 0.6
         combined_sentiment = alpha * llm_sentiment + (1 - alpha) * sampled_sentiment
         combined_sentiment = float(np.clip(combined_sentiment, -1, 1))
@@ -352,13 +353,17 @@ class MarketingAgent(CitizenAgentBase):
         fatigue = float(np.exp(-0.3 * (exposure - 1)))
         effective_sentiment = sentiment + delta * fatigue
 
-        if not new_adopted and effective_sentiment >= self.sentiment_adoption_threshold:
-            new_adopted = True
-        final_adopted = new_adopted
+        # ⚠️ 关键：保证 sentiment 和 emotion 严格对应
+        effective_sentiment = float(np.clip(effective_sentiment, low, high))
 
+        # ⚠️ 关键：adopted 仅由 sentiment 控制
+        final_adopted = effective_sentiment >= self.sentiment_adoption_threshold
+
+        # -------- exposure 更新 --------
         exposure += 1
         await self.memory.status.update("exposure_count", exposure)
-        
+
+        # -------- 状态更新 --------
         await self.memory.status.update("sentiment", effective_sentiment)
         await self.memory.status.update("emotion", canonical)
         await self.memory.status.update("thought", thought)
