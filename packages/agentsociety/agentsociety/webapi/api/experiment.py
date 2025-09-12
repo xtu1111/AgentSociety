@@ -7,7 +7,7 @@ import math
 import uuid
 import zipfile
 import base64
-from typing import List, cast, Dict, Tuple
+from typing import List, cast, Dict, Tuple, Any
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, status
@@ -224,7 +224,6 @@ async def get_experiment_summary(
                 average_emotion={emo: 0.0 for emo in EMOTION_SCORE_MAP.keys()},
                 overall_average_emotion="neutral",
                 emotion_distribution={emo: 0 for emo in EMOTION_SCORE_MAP.keys()},
-                analysis_text=None,
             )
             return ApiResponseWrapper(data=empty_summary)
 
@@ -382,7 +381,6 @@ async def get_experiment_summary(
             average_emotion=average_emotion,                 # 最终快照比例
             overall_average_emotion=overall_average_emotion, # 主导情绪
             emotion_distribution=cumulative_distribution,    # 累计趋势
-            analysis_text=None,
         )
         return ApiResponseWrapper(data=summary)
 
@@ -392,17 +390,17 @@ async def get_experiment_analysis(
     request: Request,
     exp_id: uuid.UUID,
 ) -> ApiResponseWrapper[ApiExperimentAnalysis]:
-    """Generate an LLM-based analysis for an experiment"""
+    """Generate LLM-based analysis for an experiment"""
 
-    summary_resp = await get_experiment_summary(request, exp_id)
-    summary = summary_resp.data
+    async with request.app.state.get_db() as db:
+        db = cast(AsyncSession, db)
+        experiment = await _find_started_experiment_by_id(request, db, exp_id)
 
-    analysis_text = "No analysis available for this experiment."
-    try:
-        async with request.app.state.get_db() as db:
-            db = cast(AsyncSession, db)
-            experiment = await _find_started_experiment_by_id(request, db, exp_id)
+        summary_wrapper = await get_experiment_summary(request, exp_id)
+        summary = summary_wrapper.data
 
+        analysis_text = "No analysis available for this experiment."
+        try:
             dialog_table, _ = agent_dialog(experiment.agent_dialog_tablename)
             status_table, _ = agent_status(experiment.agent_status_tablename)
             prompt_table, _ = global_prompt(experiment.global_prompt_tablename)
@@ -411,7 +409,7 @@ async def get_experiment_analysis(
             status_rows = (await db.execute(select(status_table.c.status).limit(5))).all()
             prompt_rows = (await db.execute(select(prompt_table.c.prompt).limit(5))).all()
 
-            samples = []
+            samples: List[str] = []
             for row in dialog_rows:
                 if row[0]:
                     samples.append(str(row[0]))
@@ -438,13 +436,14 @@ Here are some excerpts from the simulation (dialogs, agent internal states, syst
 
 Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution and sentiment occurred.
 """
+
             stmt = select(ExperimentBillConfig.llm_config_id).where(
                 ExperimentBillConfig.tenant_id == experiment.tenant_id,
                 ExperimentBillConfig.exp_id == experiment.id,
             )
             llm_config_id = (await db.execute(stmt)).scalar_one_or_none()
 
-            llm_configs_data = []
+            llm_configs_data: List[Dict[str, Any]] = []
             if llm_config_id:
                 stmt = select(LLMConfigDB.config).where(
                     LLMConfigDB.tenant_id.in_([experiment.tenant_id, "", "default"]),
@@ -452,7 +451,10 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
                 )
                 cfg = (await db.execute(stmt)).scalar_one_or_none()
                 if cfg:
-                    llm_configs_data.append(cfg)
+                    if isinstance(cfg, list):
+                        llm_configs_data.extend(cfg)
+                    else:
+                        llm_configs_data.append(cfg)
 
             if not llm_configs_data:
                 config_dict = json.loads(base64.b64decode(experiment.config).decode())
@@ -469,7 +471,10 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
                         )
                     cfg = (await db.execute(stmt.limit(1))).scalar_one_or_none()
                     if cfg:
-                        llm_configs_data.append(cfg)
+                        if isinstance(cfg, list):
+                            llm_configs_data.extend(cfg)
+                        else:
+                            llm_configs_data.append(cfg)
                 if not llm_configs_data:
                     llm_configs_data = partial_llms
 
@@ -483,7 +488,9 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
     except Exception:
         analysis_text = "No analysis available for this experiment."
 
-    return ApiResponseWrapper(data=ApiExperimentAnalysis(analysis_text=analysis_text))
+        return ApiResponseWrapper(
+            data=ApiExperimentAnalysis(analysis_text=analysis_text)
+        )
 
 
 @router.delete("/experiments/{exp_id}", status_code=status.HTTP_200_OK)

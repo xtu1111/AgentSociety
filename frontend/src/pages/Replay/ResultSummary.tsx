@@ -29,8 +29,8 @@ const ResultSummary: React.FC = () => {
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [summary, setSummary] = useState<ExperimentSummary>();
+    const [analysis, setAnalysis] = useState<string | null>(null);
     const [analysisLoading, setAnalysisLoading] = useState(false);
-    const [analysisText, setAnalysisText] = useState<string | null>(null);
 
     const loadSummary = async () => {
         if (!store.expID) {
@@ -41,9 +41,6 @@ const ResultSummary: React.FC = () => {
             const res = await fetchCustom(`/api/experiments/${store.expID}/summary`);
             const data = await res.json();
             setSummary(data.data as ExperimentSummary);
-            if (data.data.analysis_text) {
-                setAnalysisText(data.data.analysis_text);
-            }
         } catch (err) {
             console.error("failed to fetch summary", err);
         } finally {
@@ -97,6 +94,21 @@ const ResultSummary: React.FC = () => {
         URL.revokeObjectURL(url);
     };
 
+    const generateAnalysis = async () => {
+        if (!store.expID) return;
+        setAnalysisLoading(true);
+        try {
+            const res = await fetchCustom(`/api/experiments/${store.expID}/analysis`);
+            const data = await res.json();
+            setAnalysis(data.data?.analysis_text ?? null);
+        } catch (err) {
+            console.error("failed to fetch analysis", err);
+            setAnalysis(null);
+        } finally {
+            setAnalysisLoading(false);
+        }
+    };
+
     return (
         <>
             <Button style={{ position: "absolute", top: 20, right: 20, zIndex: 1000 }} onClick={handleOpen}>
@@ -145,33 +157,21 @@ const ResultSummary: React.FC = () => {
                                 })()}
                             </ul>
                         </div>
-                        {analysisText ? (
-                            <div>
-                                <p>{t("replay.summary.analysisTitle")}</p>
-                                <p>{analysisText}</p>
-                            </div>
-                        ) : (
-                            <Button
-                                onClick={async () => {
-                                    if (!store.expID) return;
-                                    setAnalysisLoading(true);
-                                    try {
-                                        const res = await fetchCustom(`/api/experiments/${store.expID}/analysis`);
-                                        const data = await res.json();
-                                        setAnalysisText(data.data?.analysis_text || "No analysis available for this experiment.");
-                                    } catch (err) {
-                                        console.error("failed to fetch analysis", err);
-                                        setAnalysisText("No analysis available for this experiment.");
-                                    } finally {
-                                        setAnalysisLoading(false);
-                                    }
-                                }}
-                                loading={analysisLoading}
-                                style={{ marginTop: 8 }}
-                            >
+                        <div>
+                            <Button onClick={generateAnalysis} style={{ marginBottom: 8 }}>
                                 {t("replay.summary.generateAnalysis")}
                             </Button>
-                        )}
+                            {analysisLoading ? (
+                                <Spin />
+                            ) : (
+                                analysis && (
+                                    <div>
+                                        <p>{t("replay.summary.analysisTitle")}</p>
+                                        <p>{analysis}</p>
+                                    </div>
+                                )
+                            )}
+                        </div>
                         <Button onClick={exportJSON} style={{ marginRight: 8 }}>
                             {t("replay.summary.exportJson")}
                         </Button>

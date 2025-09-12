@@ -56,5 +56,4 @@ export interface ExperimentSummary {
     average_emotion?: { [key: string]: number };
     overall_average_emotion?: string;
     emotion_distribution: { [key: string]: number };
-    analysis_text?: string;
 }
