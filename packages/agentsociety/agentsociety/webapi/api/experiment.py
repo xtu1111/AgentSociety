@@ -52,7 +52,6 @@ EMOTION_NORMALIZE_MAP = {
     "興味津々": "interested",
     "好奇心": "curious",
     "リラックス": "relaxed",
-    "中立": "neutral",
     "無関心": "uninterested",
     "懐疑的": "skeptical",
     "嫌い": "dislike",
@@ -60,10 +59,11 @@ EMOTION_NORMALIZE_MAP = {
     "感兴趣": "interested",
     "好奇": "curious",
     "放松": "relaxed",
-    "中立": "neutral",
     "不感兴趣": "uninterested",
     "怀疑": "skeptical",
     "讨厌": "dislike",
+    # Japanese and Chinese (shared)
+    "中立": "neutral",
 }
 
 EMOTION_SCORE_MAP = {
