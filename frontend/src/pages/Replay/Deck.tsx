@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import DeckGL from '@deck.gl/react';
-import { FlyToInterpolator, MapView, MapViewState } from '@deck.gl/core';
+import { FlyToInterpolator, MapView, MapViewState, type Color } from '@deck.gl/core';
 import { HeatmapLayer, TextLayer, IconLayer, ScatterplotLayer } from 'deck.gl';
 import { Map as MapGL } from 'react-map-gl';
 import tinycolor from "tinycolor2";
@@ -67,17 +67,17 @@ const Deck = observer((props: {
 
     const agentList = Array.from(store.agents.values());
 
-    const getSentimentColor = (sentiment?: number) => {
+    const getSentimentColor = (sentiment?: number): Color => {
         if (typeof sentiment !== 'number') {
-            return [0, 255, 0]; // 默认 green
+            return [0, 255, 0, 255];
         }
 
         if (sentiment > 0.2) {
-            return [0, 0, 255]; // blue
+            return [0, 0, 255, 255];
         } else if (sentiment < -0.2) {
-            return [255, 0, 0]; // red
+            return [255, 0, 0, 255];
         } else {
-            return [0, 255, 0]; // green (neutral zone: -0.2 ~ 0.2)
+        return [0, 255, 0, 255];
         }
     };
 
