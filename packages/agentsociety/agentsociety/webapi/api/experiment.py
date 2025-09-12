@@ -317,36 +317,46 @@ async def get_experiment_summary(
         )
         avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
 
-        if emotion_sums:
-            avg_emotion = {
-                k: emotion_sums[k] / emotion_counts[k]
-                for k in emotion_sums.keys()
-                if emotion_counts[k] > 0
-            }
-            overall_avg_emotion = sum(emotion_sums.values()) / sum(emotion_counts.values())
-        elif emotion_distribution and total:
-            avg_emotion = {k: v / total for k, v in emotion_distribution.items()}
-            overall_avg_emotion = sum(
-                EMOTION_POLARITY.get(k, 0.0) * v for k, v in emotion_distribution.items()
-            ) / total
-        else:
-            avg_emotion = {}
-            overall_avg_emotion = 0.0
+        # ---- emotion handling ----
+        EMOTION_ORDER = [
+            "interested", "curious", "relaxed", "neutral",
+            "uninterested", "skeptical", "dislike"
+        ]
 
-        sorted_distribution = dict(
-            sorted(
-                emotion_distribution.items(),
-                key=lambda item: EMOTION_POLARITY.get(item[0], 0.0),
-                reverse=True,
-            )
-        )
+        # 1) 全程累计的分布 (趋势)
+        cumulative_distribution = dict(emotion_distribution)
+
+        # 2) 每个 agent 最后一次状态 → 计算比例 (最终快照)
+        final_distribution = {emo: 0 for emo in EMOTION_ORDER}
+        for row in rows:
+            status_data = row.status
+            if isinstance(status_data, str):
+                try:
+                    status_data = json.loads(status_data)
+                except Exception:
+                    status_data = {}
+            if not isinstance(status_data, dict):
+                continue
+            emo_val = status_data.get("emotion", "neutral")
+            emo_label = str(emo_val).strip().lower()
+            if emo_label in final_distribution:
+                final_distribution[emo_label] += 1
+            else:
+                final_distribution["neutral"] += 1  # fallback
+
+        if total > 0:
+            average_emotion = {emo: final_distribution[emo] / total for emo in EMOTION_ORDER}
+            overall_average_emotion = max(average_emotion, key=average_emotion.get)
+        else:
+            average_emotion = {emo: 0.0 for emo in EMOTION_ORDER}
+            overall_average_emotion = "neutral"
 
         summary = ApiExperimentSummary(
             adoption_rate=adoption_rate,
             average_sentiment=avg_sentiment,
-            average_emotion=avg_emotion,
-            overall_average_emotion=overall_avg_emotion,
-            emotion_distribution=sorted_distribution,
+            average_emotion=average_emotion,                 # 最终快照比例
+            overall_average_emotion=overall_average_emotion, # 主导情绪
+            emotion_distribution=cumulative_distribution,    # 累计趋势
         )
         return ApiResponseWrapper(data=summary)
 

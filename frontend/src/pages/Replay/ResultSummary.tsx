@@ -10,9 +10,21 @@ const ResultSummary: React.FC = () => {
     const emotionLabels: Record<string, string> = {
         interested: t('emotion.interested'),
         curious: t('emotion.curious'),
+        relaxed: t('emotion.relaxed'),
         neutral: t('emotion.neutral'),
-        relaxed: t('emotion.relaxed')
+        uninterested: t('emotion.uninterested'),
+        skeptical: t('emotion.skeptical'),
+        dislike: t('emotion.dislike')
     };
+    const EMOTION_ORDER = [
+    "interested",
+    "curious",
+    "relaxed",
+    "neutral",
+    "uninterested",
+    "skeptical",
+    "dislike"
+    ];
     const store = useContext(StoreContext);
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -64,7 +76,7 @@ const ResultSummary: React.FC = () => {
         }
         if (summary.average_emotion) {
             Object.entries(summary.average_emotion).forEach(([k, v]) => {
-                rows.push([`avg_${k}`, v.toString()]);
+                rows.push([`avg_${k}`, (v * 100).toFixed(1) + "%"]);
             });
         }
         Object.entries(summary.emotion_distribution).forEach(([k, v]) => {
@@ -103,18 +115,23 @@ const ResultSummary: React.FC = () => {
                             <div>
                                 <p>{t("replay.summary.averageEmotion")}</p>
                                 <ul>
-                                    {Object.entries(summary.average_emotion).map(([k, v]) => (
-                                        <li key={k}>{emotionLabels[k] ?? k}: {typeof v === 'number' ? v.toFixed(2) : '—'}</li>
+                                    {EMOTION_ORDER.map(k => (
+                                        <li key={k}>{emotionLabels[k] ?? k}: {(summary.average_emotion[k] * 100).toFixed(1)}%</li>
                                     ))}
                                 </ul>
                             </div>
+                        )}
+
+                        {summary.overall_average_emotion && (
+                            <p>{t("replay.summary.overallAverageEmotion")}: {emotionLabels[summary.overall_average_emotion] ?? summary.overall_average_emotion}</p>
                         )}
                         <div>
                             <p>{t("replay.summary.emotionDistribution")}</p>
                             <ul>
                                 {(() => {
                                     const total = Object.values(summary.emotion_distribution).reduce((a, b) => a + b, 0);
-                                    return Object.entries(summary.emotion_distribution).map(([k, v]) => {
+                                    return EMOTION_ORDER.map(k => {
+                                        const v = summary.emotion_distribution[k] ?? 0;
                                         const pct = total ? ((v / total) * 100).toFixed(1) : '0';
                                         return (
                                             <li key={k}>{emotionLabels[k] ?? k}: {v} ({pct}%)</li>
