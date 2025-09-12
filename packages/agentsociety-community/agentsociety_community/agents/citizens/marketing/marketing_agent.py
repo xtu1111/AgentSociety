@@ -138,6 +138,7 @@ async def _consult_llm(
                 "You are a person chatting with friends about an incoming piece of marketing or news. "
                 "Speak casually in first person and mention if you've heard similar news before. "
                 "Speak in Japanese."
+                "Only use one of [Dislike, Skeptical, Uninterested, Neutral, Relaxed, Curious, Interested] for both emotion and attitude.""
                 "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, \"share\": bool, "
                 "\"suggested_targets\": [string], \"emotion\": string, \"thought\": string, \"attitude\": string, \"current_need\": string}"
             ),
@@ -329,7 +330,11 @@ class MarketingAgent(CitizenAgentBase):
         ) = await _consult_llm(
             self, profile, sentiment, adopted, content, friend_names, exposure
         )
-        new_sentiment = float(np.clip(new_sentiment, -1, 1))
+        attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower(), "neutral")
+        emotion = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), attitude_norm)
+        score = EMOTION_SCORE_MAP.get(attitude_norm, 0.0)
+        if not isinstance(new_sentiment, (int, float)) or abs(new_sentiment) < abs(score):
+            new_sentiment = score
         model = profile.get("share_model", "rule")
         if model != "llm":
             sim_self = _similarity(tags or [], profile)
