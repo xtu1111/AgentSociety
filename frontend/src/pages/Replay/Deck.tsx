@@ -67,6 +67,21 @@ const Deck = observer((props: {
 
     const agentList = Array.from(store.agents.values());
 
+    const getSentimentColor = (sentiment?: number) => {
+        if (typeof sentiment !== 'number') {
+            return [0, 255, 0]; // 默认 green
+        }
+
+        if (sentiment > 0.2) {
+            return [0, 0, 255]; // blue
+        } else if (sentiment < -0.2) {
+            return [255, 0, 0]; // red
+        } else {
+            return [0, 255, 0]; // green (neutral zone: -0.2 ~ 0.2)
+        }
+    };
+
+
     if (curZoom > 10) {
         const iconLayer = new IconLayer({
             id: 'icon',
@@ -98,10 +113,12 @@ const Deck = observer((props: {
                 } catch (e) {
                     console.error(e);
                 }
+                const sentiment = typeof a.status === 'object' ? Number(a.status['sentiment']) : undefined;
                 return {
                     id: a.id,
                     coordinate: [a.lng, a.lat],
                     avatarUrl: avatarUrl,
+                    sentiment: sentiment,
                 }
             }),
             pickable: true,
@@ -114,6 +131,7 @@ const Deck = observer((props: {
             }),
             getSize: 30,
             getPosition: d => d.coordinate,
+            getColor: d => getSentimentColor(d.sentiment),
         });
         // if (iconLayers.length > 0) {
         //     console.log("number of agents: ", iconLayers.length);
@@ -159,12 +177,12 @@ const Deck = observer((props: {
         const pointLayer = new ScatterplotLayer({
             id: 'point',
             data: agentList.map((a) => {
+                const sentiment = typeof a.status === 'object' ? Number(a.status['sentiment']) : undefined;
                 return {
                     id: a.id,
                     position: [a.lng, a.lat],
                     radius: 10,
-                    // #1677FF
-                    color: [22, 119, 255],
+                    color: getSentimentColor(sentiment),
                 }
             }),
             pickable: true,

@@ -31,6 +31,8 @@ from ..models.experiment import (
     ApiExperimentAnalysis,
 )
 from ..models.metric import ApiMetric, metric
+from ..models.config import LLMConfig as LLMConfigDB
+from ...commercial.billing.models import ExperimentBillConfig
 from .const import DEMO_USER_ID
 from .timezone import ensure_timezone_aware
 from ...llm import LLM, LLMConfig as RealLLMConfig
@@ -436,8 +438,26 @@ Here are some excerpts from the simulation (dialogs, agent internal states, syst
 
 Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution and sentiment occurred.
 """
-            config_dict = json.loads(base64.b64decode(experiment.config).decode())
-            llm_configs_data = config_dict.get("llm", [])
+            stmt = select(ExperimentBillConfig.llm_config_id).where(
+                ExperimentBillConfig.tenant_id == experiment.tenant_id,
+                ExperimentBillConfig.exp_id == experiment.id,
+            )
+            llm_config_id = (await db.execute(stmt)).scalar_one_or_none()
+
+            llm_configs_data = []
+            if llm_config_id:
+                stmt = select(LLMConfigDB.config).where(
+                    LLMConfigDB.tenant_id.in_([experiment.tenant_id, "", "default"]),
+                    LLMConfigDB.id == llm_config_id,
+                )
+                llm_configs_data = (
+                    await db.execute(stmt)
+                ).scalar_one_or_none() or []
+
+            if not llm_configs_data:
+                config_dict = json.loads(base64.b64decode(experiment.config).decode())
+                llm_configs_data = config_dict.get("llm", [])
+                
             llm_configs = [RealLLMConfig.model_validate(c) for c in llm_configs_data]
             if llm_configs:
                 llm = LLM(llm_configs)
