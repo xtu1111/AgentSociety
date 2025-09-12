@@ -137,10 +137,10 @@ async def _consult_llm(
             "content": (
                 "You are a person chatting with friends about an incoming piece of marketing or news. "
                 "Speak casually in first person and mention if you've heard similar news before. "
-                "Speak in Japanese."
-                "Only use one of [Dislike, Skeptical, Uninterested, Neutral, Relaxed, Curious, Interested] for both emotion and attitude.""
-                "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, \"share\": bool, "
-                "\"suggested_targets\": [string], \"emotion\": string, \"thought\": string, \"attitude\": string, \"current_need\": string}"
+                "Speak in Japanese. Only use one of [嫌い, 懐疑的, 無関心, 中立, リラックス, 好奇心, 興味津々] for both emotion and attitude.  "
+                "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, "
+                "\"share\": bool, \"suggested_targets\": [string], \"emotion\": string, "
+                "\"thought\": string, \"attitude\": string, \"current_need\": string}"
             ),
         },
         {
