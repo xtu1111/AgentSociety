@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
@@ -72,7 +71,7 @@ EMOTION_SCORE_MAP = {
 }
 
 
-class MarketingAgentConfig(AgentParams):
+class MarketingParams(AgentParams):
     """Configuration options for :class:`MarketingAgent`."""
 
     max_forwards: int = Field(
@@ -85,6 +84,11 @@ class MarketingAgentConfig(AgentParams):
             "their aggregate sentiment"
         ),
     )
+
+
+# Backwards compatibility alias
+MarketingAgentConfig = MarketingParams
+
 
 def _extract_text(raw: str) -> str:
     """Best-effort extraction of human-readable text from potential JSON."""
@@ -156,26 +160,23 @@ async def _consult_llm(
         cleaned = clean_json_response(reply)
         data = json_repair.loads(cleaned)
 
-        raw_sentiment = data.get("sentiment")
-        if isinstance(raw_sentiment, (int, float)):
+        raw_sentiment = data.get("sentiment", sentiment)
+        try:
             new_sentiment = float(raw_sentiment)
-        else:
-            label = data.get("attitude")
-            if label is None or str(label) not in ATTITUDE_SENTIMENT_MAP:
-                label = data.get("emotion")
-            if isinstance(label, (str, int, float)):
-                mapped = ATTITUDE_SENTIMENT_MAP.get(str(label))
-                new_sentiment = mapped if mapped is not None else sentiment
-            else:
-                new_sentiment = sentiment
+        except (TypeError, ValueError):
+            new_sentiment = sentiment
 
         raw_adopted = data.get("adopted", adopted)
+        if isinstance(raw_adopted, str):
+            raw_adopted = raw_adopted.strip().lower() in {"true", "1", "yes"}
         new_adopted = bool(raw_adopted) if isinstance(raw_adopted, (bool, int)) else adopted
 
         say_raw = data.get("say", "")
         say = _extract_text(str(say_raw))
 
         raw_share = data.get("share", True)
+        if isinstance(raw_share, str):
+            raw_share = raw_share.strip().lower() in {"true", "1", "yes"}
         share = bool(raw_share) if isinstance(raw_share, (bool, int)) else True
 
         targets = data.get("suggested_targets", [])
@@ -257,7 +258,7 @@ async def _extract_profile_from_memory(memory: Memory) -> dict:
 class MarketingAgent(CitizenAgentBase):
     """Citizen reacting to marketing information."""
 
-    ParamsType = MarketingAgentConfig
+    ParamsType = MarketingParams
     StatusAttributes = [
         MemoryAttribute(name="friends", type=list, default_or_value=[], description="friend ids"),
         MemoryAttribute(name="connections", type=list, default_or_value=[], description="social connections"),
@@ -286,9 +287,7 @@ class MarketingAgent(CitizenAgentBase):
         super().__init__(id, name, toolbox, memory, agent_params, blocks)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.processed_msgs: set[Tuple[int, str]] = set()
-        self.max_forwards = (
-            agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
-        )
+        self.max_forwards = (agent_params or MarketingParams()).max_forwards
         self.sentiment_adoption_threshold = (
             agent_params.sentiment_adoption_threshold
             if agent_params and hasattr(agent_params, "sentiment_adoption_threshold")
