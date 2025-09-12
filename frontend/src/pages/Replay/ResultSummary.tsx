@@ -140,6 +140,12 @@ const ResultSummary: React.FC = () => {
                                 })()}
                             </ul>
                         </div>
+                        {summary.analysis_text && (
+                            <div>
+                                <p>{t("replay.summary.analysisTitle")}</p>
+                                <p>{summary.analysis_text}</p>
+                            </div>
+                        )}
                         <Button onClick={exportJSON} style={{ marginRight: 8 }}>
                             {t("replay.summary.exportJson")}
                         </Button>

@@ -65,6 +65,7 @@ export default {
         averageSentiment: "平均情绪",
         averageEmotion: "平均情绪分数",
         emotionDistribution: "情绪分布",
+        analysisTitle: "AI分析结果",
         exportJson: "导出 JSON",
         exportCsv: "导出 CSV"
     }

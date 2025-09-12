@@ -42,9 +42,18 @@ export default {
         view: '表示'
     },
     emotion: {
-        interested: '興味がある',
-        curious: '好奇心',
-        neutral: '中立',
+        interested: '興味津々',
+        curious: '好奇',
         relaxed: 'リラックス'
+        neutral: '中立',
+        uninterested: '無関心',
+        skeptical: '懐疑的',
+        dislike: '嫌い',
     }
+    },
+    replay: {
+        summary: {
+            analysisTitle: 'AIによる分析',
+        },
+    },
 };

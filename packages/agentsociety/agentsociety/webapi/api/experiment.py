@@ -31,6 +31,7 @@ from ..models.experiment import (
 from ..models.metric import ApiMetric, metric
 from .const import DEMO_USER_ID
 from .timezone import ensure_timezone_aware
+from openai import AsyncOpenAI
 
 __all__ = ["router"]
 
@@ -219,6 +220,7 @@ async def get_experiment_summary(
                 average_emotion={emo: 0.0 for emo in EMOTION_SCORE_MAP.keys()},
                 overall_average_emotion="neutral",
                 emotion_distribution={emo: 0 for emo in EMOTION_SCORE_MAP.keys()},
+                analysis_text="No analysis available for this experiment.",
             )
             return ApiResponseWrapper(data=empty_summary)
 
@@ -370,6 +372,52 @@ async def get_experiment_summary(
         else:
             average_emotion = {emo: 0.0 for emo in EMOTION_ORDER}
             overall_average_emotion = "neutral"
+        analysis_text = "No analysis available for this experiment."
+        try:
+            dialog_table, _ = agent_dialog(experiment.agent_dialog_tablename)
+            prompt_table, _ = global_prompt(experiment.global_prompt_tablename)
+
+            dialog_rows = (await db.execute(select(dialog_table.c.content).limit(5))).all()
+            status_rows = (await db.execute(select(status_table.c.status).limit(5))).all()
+            prompt_rows = (await db.execute(select(prompt_table.c.prompt).limit(5))).all()
+
+            samples = []
+            for row in dialog_rows:
+                if row[0]:
+                    samples.append(str(row[0]))
+            for row in status_rows:
+                val = row[0]
+                if val:
+                    if isinstance(val, (dict, list)):
+                        samples.append(json.dumps(val))
+                    else:
+                        samples.append(str(val))
+            for row in prompt_rows:
+                if row[0]:
+                    samples.append(str(row[0]))
+
+            sample_texts = "\n".join(samples)
+            prompt = f"""Here is the experiment summary:
+Adoption Rate: {adoption_rate}
+Average Sentiment: {avg_sentiment}
+Overall Average Emotion: {overall_average_emotion}
+Emotion Distribution: {cumulative_distribution}
+
+Here are some excerpts from the simulation (dialogs, agent internal states, system prompts):
+{sample_texts}
+
+Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution and sentiment occurred.
+"""
+            client = AsyncOpenAI()
+            response = await client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=150,
+            )
+            if response.choices and response.choices[0].message.content:
+                analysis_text = response.choices[0].message.content.strip()
+        except Exception:
+            analysis_text = "No analysis available for this experiment."
 
         summary = ApiExperimentSummary(
             adoption_rate=adoption_rate,
@@ -377,6 +425,7 @@ async def get_experiment_summary(
             average_emotion=average_emotion,                 # 最终快照比例
             overall_average_emotion=overall_average_emotion, # 主导情绪
             emotion_distribution=cumulative_distribution,    # 累计趋势
+            analysis_text=analysis_text,
         )
         return ApiResponseWrapper(data=summary)
 

@@ -91,3 +91,4 @@ class ApiExperimentSummary(BaseModel):
     average_emotion: Optional[Dict[str, float]] = None
     overall_average_emotion: Optional[str] = None
     emotion_distribution: Dict[str, int]
+    analysis_text: Optional[str] = None
