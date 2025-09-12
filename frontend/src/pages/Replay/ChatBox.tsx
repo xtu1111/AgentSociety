@@ -244,7 +244,9 @@ export const RightPanel = observer(() => {
 
     const renderMetrics = () => {
         const metrics = store.metrics;
-        const metricEntries = Array.from(metrics.entries())
+        const clickedAgentID = store.clickedAgentID;
+
+        let metricEntries = Array.from(metrics.entries())
             .map(
                 ([key, values]) =>
                     [
@@ -257,6 +259,38 @@ export const RightPanel = observer(() => {
                     ] as [string, ApiMetric[]]
             )
             .filter(([, values]) => values.length > 0);
+
+        const topEntries: [string, ApiMetric[]][] = [];
+
+        if (clickedAgentID !== undefined) {
+            const agentSentimentKey = `sentiment:${clickedAgentID}`;
+            const agentAdoptedKey = `adopted:${clickedAgentID}`;
+
+            for (const entry of metricEntries) {
+                const [key] = entry;
+                if (key === agentSentimentKey || key === agentAdoptedKey) {
+                    topEntries.push(entry);
+                }
+            }
+
+            metricEntries = metricEntries.filter(
+                ([key]) =>
+                    key !== agentSentimentKey &&
+                    key !== agentAdoptedKey &&
+                    !key.startsWith('sentiment') &&
+                    !key.startsWith('adopted')
+            );
+        } else {
+            metricEntries = metricEntries.filter(
+                ([key]) =>
+                    key !== 'sentiment' &&
+                    key !== 'adopted' &&
+                    !key.startsWith('sentiment:') &&
+                    !key.startsWith('adopted:')
+            );
+        }
+
+        metricEntries = [...topEntries, ...metricEntries];
 
         if (metricEntries.length === 0) {
             return <div>{t('replay.chatbox.metrics.noMetrics')}</div>;
