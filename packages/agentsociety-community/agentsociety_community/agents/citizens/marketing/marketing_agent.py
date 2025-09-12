@@ -70,6 +70,15 @@ EMOTION_SCORE_MAP = {
     "interested": 0.6,
 }
 
+EMOTION_SCORE_RANGE = {
+    "dislike": (-1.0, -0.6),
+    "skeptical": (-0.59, -0.4),
+    "uninterested": (-0.39, -0.2),
+    "neutral": (-0.19, 0.19),
+    "relaxed": (0.2, 0.39),
+    "curious": (0.4, 0.59),
+    "interested": (0.6, 1.0),
+}
 
 class MarketingParams(AgentParams):
     """Configuration options for :class:`MarketingAgent`."""
@@ -318,7 +327,7 @@ class MarketingAgent(CitizenAgentBase):
         friend_names = [ID_TO_PROFILE.get(f, {}).get("name", "") for f in friends if f in ID_TO_PROFILE]
         exposure = await self.memory.status.get("exposure_count") or 0
         (
-            new_sentiment,
+            _,
             new_adopted,
             say,
             llm_share,
@@ -332,9 +341,8 @@ class MarketingAgent(CitizenAgentBase):
         )
         attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower(), "neutral")
         emotion = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower(), attitude_norm)
-        score = EMOTION_SCORE_MAP.get(attitude_norm, 0.0)
-        if not isinstance(new_sentiment, (int, float)) or abs(new_sentiment) < abs(score):
-            new_sentiment = score
+        low, high = EMOTION_SCORE_RANGE.get(attitude_norm, (-0.19, 0.19))
+        new_sentiment = float(RNG.uniform(low, high))
         model = profile.get("share_model", "rule")
         if model != "llm":
             sim_self = _similarity(tags or [], profile)
