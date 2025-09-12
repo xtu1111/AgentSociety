@@ -4,17 +4,17 @@ Agents update their sentiment toward a product when receiving
 messages and decide whether to forward the information to friends
 based on relationship strength and LLM guidance.
 """
+
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 import json_repair
 import numpy as np
-import re
-
 from pydantic import Field
 
 from agentsociety.agent import AgentParams, CitizenAgentBase, MemoryAttribute
@@ -60,6 +60,7 @@ EMOTION_NORMALIZE_MAP = {
     "讨厌": "dislike",
 }
 
+# canonical representative score
 EMOTION_SCORE_MAP = {
     "dislike": -0.6,
     "skeptical": -0.4,
@@ -70,6 +71,7 @@ EMOTION_SCORE_MAP = {
     "interested": 0.6,
 }
 
+# score ranges
 EMOTION_SCORE_RANGE = {
     "dislike": (-1.0, -0.6),
     "skeptical": (-0.59, -0.4),
@@ -80,6 +82,7 @@ EMOTION_SCORE_RANGE = {
     "interested": (0.6, 1.0),
 }
 
+
 class MarketingParams(AgentParams):
     """Configuration options for :class:`MarketingAgent`."""
 
@@ -88,10 +91,7 @@ class MarketingParams(AgentParams):
     )
     sentiment_adoption_threshold: float = Field(
         default=0.6,
-        description=(
-            "Minimum sentiment required before automatically adopting based on "
-            "their aggregate sentiment"
-        ),
+        description="Minimum sentiment required before automatically adopting based on aggregate sentiment",
     )
 
 
@@ -119,7 +119,7 @@ def _extract_text(raw: str) -> str:
                 return first
             if isinstance(first, dict) and isinstance(first.get("content"), str):
                 return first["content"]
-    except Exception:  # pragma: no cover - heuristic parsing
+    except Exception:
         match = re.search(
             r""""?content"?[:\uff1a]\s*(?:"([^"]*)"|'([^']*)')""",
             text,
@@ -146,7 +146,8 @@ async def _consult_llm(
             "content": (
                 "You are a person chatting with friends about an incoming piece of marketing or news. "
                 "Speak casually in first person and mention if you've heard similar news before. "
-                "Speak in Japanese. Only use one of [嫌い, 懐疑的, 無関心, 中立, リラックス, 好奇心, 興味津々] for both emotion and attitude.  "
+                "Speak in Japanese. Only use one of [嫌い, 懐疑的, 無関心, 中立, リラックス, 好奇心, 興味津々] "
+                "for both emotion and attitude. "
                 "Reply in JSON {\"sentiment\": float, \"adopted\": bool, \"say\": string, "
                 "\"share\": bool, \"suggested_targets\": [string], \"emotion\": string, "
                 "\"thought\": string, \"attitude\": string, \"current_need\": string}"
@@ -199,21 +200,15 @@ async def _consult_llm(
             elif isinstance(item, list):
                 stack.extend(item)
 
-        emotion = data.get("emotion", "Neutral")
-        emotion = str(emotion) if isinstance(emotion, (str, int, float)) else "Neutral"
-
-        thought = data.get("thought", "")
-        thought = str(thought) if isinstance(thought, (str, int, float)) else ""
-
-        attitude = data.get("attitude", "neutral")
-        attitude = str(attitude) if isinstance(attitude, (str, int, float)) else "neutral"
-
-        need = data.get("current_need", "none")
-        need = str(need) if isinstance(need, (str, int, float)) else "none"
+        emotion = str(data.get("emotion", "neutral"))
+        thought = str(data.get("thought", ""))
+        attitude = str(data.get("attitude", "neutral"))
+        need = str(data.get("current_need", "none"))
 
         await agent.memory.stream.add(topic="marketing", description=message)
         await agent.save_agent_thought(thought)
-    except Exception as e:  # pragma: no cover - LLM failures
+
+    except Exception as e:
         agent.logger.warning(
             f"LLM parse failed for agent {getattr(agent, '_name', agent.id)}: {e}"
         )
@@ -222,7 +217,7 @@ async def _consult_llm(
         say = message
         share = True
         suggested = []
-        emotion = "Neutral"
+        emotion = "neutral"
         thought = f"LLM parse failed: {e}"
         attitude = "neutral"
         need = "none"
@@ -230,8 +225,17 @@ async def _consult_llm(
         await agent.memory.stream.add(topic="marketing", description=message)
         await agent.save_agent_thought(thought)
 
-    new_sentiment = float(np.clip(new_sentiment, -1, 1))
-    return new_sentiment, new_adopted, say, share, suggested, emotion, thought, attitude, need
+    return (
+        new_sentiment,
+        new_adopted,
+        say,
+        share,
+        suggested,
+        emotion,
+        thought,
+        attitude,
+        need,
+    )
 
 
 def _similarity(tags: List[str], profile: dict) -> float:
@@ -250,14 +254,7 @@ def _similarity(tags: List[str], profile: dict) -> float:
 async def _extract_profile_from_memory(memory: Memory) -> dict:
     """Gather basic profile information stored in agent memory."""
     profile: Dict[str, object] = {}
-    for key in [
-        "name",
-        "age",
-        "occupation",
-        "profession",
-        "interests",
-        "connections",
-    ]:
+    for key in ["name", "age", "occupation", "profession", "interests", "connections"]:
         try:
             profile[key] = await memory.status.get(key)
         except KeyError:
@@ -276,7 +273,7 @@ class MarketingAgent(CitizenAgentBase):
         MemoryAttribute(name="interests", type=list, default_or_value=[], description="agent interests"),
         MemoryAttribute(name="profile", type=dict, default_or_value={}, description="profile info"),
         MemoryAttribute(name="sentiment", type=float, default_or_value=0.0, description="sentiment [-1,1]"),
-        MemoryAttribute(name="emotion", type=str, default_or_value="Neutral", description="current emotion"),
+        MemoryAttribute(name="emotion", type=str, default_or_value="neutral", description="current emotion"),
         MemoryAttribute(name="thought", type=str, default_or_value="", description="agent reflection", whether_embedding=True),
         MemoryAttribute(name="adopted", type=bool, default_or_value=False, description="has adopted product"),
         MemoryAttribute(name="attitude", type=str, default_or_value="neutral", description="attitude toward product"),
@@ -297,15 +294,13 @@ class MarketingAgent(CitizenAgentBase):
         super().__init__(id, name, toolbox, memory, agent_params, blocks)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.processed_msgs: set[Tuple[int, str]] = set()
-        self.max_forwards = (agent_params or MarketingParams()).max_forwards
+        self.max_forwards = (
+            agent_params.max_forwards if agent_params and hasattr(agent_params, "max_forwards") else 5
+        )
         self.sentiment_adoption_threshold = (
             agent_params.sentiment_adoption_threshold
             if agent_params and hasattr(agent_params, "sentiment_adoption_threshold")
-            else (
-                agent_params.adoption_threshold
-                if agent_params and hasattr(agent_params, "adoption_threshold")
-                else 0.6
-            )
+            else 0.6
         )
 
     async def init(self) -> None:
@@ -326,8 +321,9 @@ class MarketingAgent(CitizenAgentBase):
         friends = await self.memory.status.get("friends") or []
         friend_names = [ID_TO_PROFILE.get(f, {}).get("name", "") for f in friends if f in ID_TO_PROFILE]
         exposure = await self.memory.status.get("exposure_count") or 0
+
         (
-            _,
+            llm_sentiment,
             new_adopted,
             say,
             llm_share,
@@ -339,13 +335,43 @@ class MarketingAgent(CitizenAgentBase):
         ) = await _consult_llm(
             self, profile, sentiment, adopted, content, friend_names, exposure
         )
+
         attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower())
         emotion_norm = EMOTION_NORMALIZE_MAP.get(str(emotion).strip().lower())
         canonical = emotion_norm or attitude_norm or "neutral"
-        emotion = canonical
-        attitude_norm = canonical
+
         low, high = EMOTION_SCORE_RANGE.get(canonical, (-0.19, 0.19))
-        new_sentiment = float(RNG.uniform(low, high))
+        sampled_sentiment = float(RNG.uniform(low, high))
+
+        alpha = 0.6
+        combined_sentiment = alpha * llm_sentiment + (1 - alpha) * sampled_sentiment
+        combined_sentiment = float(np.clip(combined_sentiment, low, high))
+
+        delta = combined_sentiment - sentiment
+        fatigue = float(np.exp(-0.3 * (exposure - 1)))
+        effective_sentiment = sentiment + delta * fatigue
+
+        if not new_adopted and effective_sentiment >= self.sentiment_adoption_threshold:
+            new_adopted = True
+        final_adopted = new_adopted
+
+        await self.memory.status.update("sentiment", effective_sentiment)
+        await self.memory.status.update("emotion", canonical)
+        await self.memory.status.update("thought", thought)
+        await self.memory.status.update("adopted", final_adopted)
+        await self.memory.status.update("attitude", canonical)
+        await self.memory.status.update("current_need", need)
+        await self.memory.status.update("exposure_count", exposure + 1)
+
+        if self.database_writer is not None:
+            await self.database_writer.log_metric(
+                [
+                    (f"sentiment:{self.id}", float(effective_sentiment), exposure),
+                    (f"adopted:{self.id}", 1.0 if final_adopted else 0.0, exposure),
+                    (f"emotion:{self.id}", float(effective_sentiment), exposure),
+                ]
+            )
+
         model = profile.get("share_model", "rule")
         if model != "llm":
             sim_self = _similarity(tags or [], profile)
@@ -353,32 +379,10 @@ class MarketingAgent(CitizenAgentBase):
             suggested = []
         else:
             share = llm_share
-        exposure += 1
-        await self.memory.status.update("exposure_count", exposure)
-        # fatigue: dampen change as exposures accumulate
-        delta = new_sentiment - sentiment
-        fatigue = float(np.exp(-0.3 * (exposure - 1)))
-        effective_sentiment = sentiment + delta * fatigue
-        if not new_adopted and effective_sentiment >= self.sentiment_adoption_threshold:
-            new_adopted = True
-        final_adopted = new_adopted
-        await self.memory.status.update("sentiment", effective_sentiment)
-        await self.memory.status.update("emotion", emotion)
-        await self.memory.status.update("thought", thought)
-        await self.memory.status.update("adopted", final_adopted)
-        await self.memory.status.update("attitude", attitude)
-        await self.memory.status.update("current_need", need)
-        if self.database_writer is not None:
-            emotion_score = EMOTION_SCORE_MAP.get(emotion.strip().lower(), 0.0)
-            await self.database_writer.log_metric(
-                [
-                    (f"sentiment:{self.id}", float(effective_sentiment), exposure),
-                    (f"adopted:{self.id}", 1.0 if final_adopted else 0.0, exposure),
-                    (f"emotion:{self.id}", float(emotion_score), exposure),
-                ]
-            )
+
         if share:
             await self._share_message(say, tags or [], sender_id, suggested)
+
         return say
 
     async def _share_message(
@@ -443,21 +447,7 @@ class MarketingAgent(CitizenAgentBase):
         return await self._handle_message(content, sender_id, [])
 
     async def react_to_intervention(self, intervention_message: str):
-        """Handle incoming marketing intervention payloads.
-
-        The simulation engine sends marketing messages as a JSON string
-        containing both the content and optional tags. Previously we passed
-        the raw JSON string straight into ``_handle_message`` which ignored
-        tags and gave the LLM a JSON blob instead of the human‑readable
-        message. As a result agents rarely shared messages and no LLM tokens
-        were consumed.
-
-        This method now parses the JSON payload, extracting the ``content``
-        and ``tags`` fields before delegating to ``_handle_message``. If the
-        payload isn't valid JSON we fall back to treating the entire string as
-        the message with no tags. This ensures marketing interventions always
-        trigger cognitive processing and optional sharing behaviour.
-        """
+        """Handle incoming marketing intervention payloads."""
 
         try:
             data = json.loads(intervention_message)
@@ -466,13 +456,8 @@ class MarketingAgent(CitizenAgentBase):
         except Exception:
             content = intervention_message
             tags = []
-
         await self._handle_message(content, None, tags)
 
     async def forward(self) -> None:
-        """Execute one simulation tick.
-
-        Marketing agents are reactive: they only process incoming messages.
-        Thus, the default forward simply returns without additional action.
-        """
+        """Execute one simulation tick."""
         return
