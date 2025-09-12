@@ -89,5 +89,5 @@ class ApiExperimentSummary(BaseModel):
     adoption_rate: float
     average_sentiment: float = 0.0
     average_emotion: Optional[Dict[str, float]] = None
-    overall_average_emotion: Optional[float] = None
+    overall_average_emotion: Optional[str] = None
     emotion_distribution: Dict[str, int]

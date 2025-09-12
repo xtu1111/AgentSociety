@@ -54,6 +54,6 @@ export interface ExperimentSummary {
     adoption_rate: number;
     average_sentiment: number;
     average_emotion?: { [key: string]: number };
-    overall_average_emotion?: number;
+    overall_average_emotion?: string;
     emotion_distribution: { [key: string]: number };
 }
