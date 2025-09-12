@@ -472,7 +472,12 @@ async def get_experiment_metrics_by_id(
         - Dict[str, List[ApiMetric]]: Metrics data aggregated by key
     """
 
-    experiment = await _find_started_experiment_by_id(request, db, exp_id)
+    try:
+        experiment = await _find_started_experiment_by_id(request, db, exp_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_400_BAD_REQUEST:
+            return False, {}
+        raise
 
     # Get metrics from the metric table
     table_name = experiment.metric_tablename
