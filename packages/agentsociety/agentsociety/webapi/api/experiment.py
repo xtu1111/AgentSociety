@@ -485,12 +485,10 @@ Task: Write a short explanation (2-4 sentences) analyzing WHY this distribution 
                     dialog=[{"role": "user", "content": prompt}],
                     max_tokens=150,
                 )
-    except Exception:
-        analysis_text = "No analysis available for this experiment."
+    except Exception as e:  # pragma: no cover - best effort logging
+        logging.error("Failed to analyze experiment %s: %s", exp_id, e)
 
-        return ApiResponseWrapper(
-            data=ApiExperimentAnalysis(analysis_text=analysis_text)
-        )
+    return ApiResponseWrapper(data=ApiExperimentAnalysis(analysis_text=analysis_text))
 
 
 @router.delete("/experiments/{exp_id}", status_code=status.HTTP_200_OK)

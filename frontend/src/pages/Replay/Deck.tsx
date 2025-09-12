@@ -98,15 +98,15 @@ const Deck = observer((props: {
     };
 
     const getSentimentColor = (sentiment?: number): Color => {
-        const neutral = new Uint8Array([0, 255, 0, 255]);
+        const neutral: Color = [0, 255, 0, 255];
         if (typeof sentiment !== 'number' || Number.isNaN(sentiment)) {
             return neutral;
         }
         if (sentiment >= 0.2) {
-            return new Uint8Array([0, 0, 255, 255]);
+            return [0, 0, 255, 255];
         }
         if (sentiment <= -0.2) {
-            return new Uint8Array([255, 0, 0, 255]);
+            return [255, 0, 0, 255];
         }
         return neutral;
     };
