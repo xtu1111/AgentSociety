@@ -104,60 +104,88 @@ export const RightPanel = observer(() => {
         }
     };
 
-    const renderDialogs = (type: number) => (
-        <>
-            <Bubble.List
-                roles={roles}
-                className={type === 2 ? 'bubble-input' : 'bubble-no-input'}
-                items={agentDialogs.filter(m => m.type === type).map((m, i) => {
-                    // try to parse content as JSON
-                    let content = m.content;
-                    try {
-                        const contentJson = JSON.parse(m.content);
-                        if (contentJson.content !== undefined) {
-                            content = contentJson.content;
-                        }
-                    } catch {
-                        // ignore JSON parse errors
-                    }
-                    const { role, name } = getRoleByChatMessage(m);
+    const renderDialogs = (type: number) => {
+        const dialogs = agentDialogs.filter(m => m.type === type);
 
-                    return {
-                        key: `${m.id}-${i}`,
-                        loading: false,
-                        role: role,
-                        content: content,
-                        header: <div>
-                            {name} ({t('replay.day', { day: m.day })} {parseT(m.t)})
-                        </div>
-                    }
-                })}
-            />
-            {type === 2 && <>
-                <Sender
-                    value={content}
-                    onChange={setContent}
-                    disabled={store.experiment?.status !== 1 || agent === undefined}
-                    onSubmit={async (content: string) => {
-                        if (agent === undefined) {
-                            return;
-                        }
-                        const res = await fetchCustom(`/api/experiments/${store.expID}/agents/${agent.id}/dialog`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ content: content, day: store.currentTime?.day ?? 0, t: store.currentTime?.t ?? 0 }),
-                        });
-                        if (res.status !== 200) {
-                            console.error('Failed to send message:', res);
-                        } else {
-                            message.success(t('replay.chatbox.dialog.sendSuccess'));
-                        }
-                        setContent('');
-                    }}
-                /></>
+        // remove duplicate messages by using a set of keys
+        const uniqueDialogs: AgentDialog[] = [];
+        const seen = new Set<string>();
+        for (const m of dialogs) {
+            let content = m.content;
+            try {
+                const contentJson = JSON.parse(m.content);
+                if (contentJson.content !== undefined) {
+                    content = contentJson.content;
+                }
+            } catch {
+                // ignore JSON parse errors
             }
-        </>
-    );
+            const key = `${m.day}-${m.t}-${m.type}-${m.speaker}-${content}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            uniqueDialogs.push({ ...m, content });
+        }
+
+        // track the last other-agent speaker for displaying the receiver
+        let lastOtherSpeaker: number | undefined;
+        const items = uniqueDialogs.map((m, i) => {
+            const { role, name } = getRoleByChatMessage(m);
+            let headerName = name;
+            if (m.type === 1) {
+                if (m.speaker === "" || m.speaker === agent?.id.toString()) {
+                    const toName = lastOtherSpeaker !== undefined ? store.agents.get(lastOtherSpeaker)?.name : undefined;
+                    if (toName) {
+                        headerName = `${name} to ${toName}`;
+                    }
+                } else {
+                    lastOtherSpeaker = parseInt(m.speaker);
+                }
+            }
+            return {
+                key: `${m.id}-${i}`,
+                loading: false,
+                role: role,
+                content: m.content,
+                header: <div>
+                    {headerName} ({t('replay.day', { day: m.day })} {parseT(m.t)})
+                </div>
+            };
+        });
+
+        return (
+            <>
+                <Bubble.List
+                    roles={roles}
+                    className={type === 2 ? 'bubble-input' : 'bubble-no-input'}
+                    items={items}
+                />
+                {type === 2 && <>
+                    <Sender
+                        value={content}
+                        onChange={setContent}
+                        disabled={store.experiment?.status !== 1 || agent === undefined}
+                        onSubmit={async (content: string) => {
+                            if (agent === undefined) {
+                                return;
+                            }
+                            const res = await fetchCustom(`/api/experiments/${store.expID}/agents/${agent.id}/dialog`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ content: content, day: store.currentTime?.day ?? 0, t: store.currentTime?.t ?? 0 }),
+                            });
+                            if (res.status !== 200) {
+                                console.error('Failed to send message:', res);
+                            } else {
+                                message.success(t('replay.chatbox.dialog.sendSuccess'));
+                            }
+                            setContent('');
+                        }}
+                    /></>}
+            </>
+        );
+    };
 
     // 将一个Survey中的提问转换为User，回答转换为Agent
     const renderSurveys = () => (
