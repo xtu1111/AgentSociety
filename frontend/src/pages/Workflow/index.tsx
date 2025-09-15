@@ -620,18 +620,22 @@ const WorkflowList: React.FC = () => {
                                                             style={{ width: '100%' }}
                                                             placeholder={t('workflow.selectStepType')}
                                                             onChange={(value) => {
-                                                                if (value === WorkflowType.MARKETING_MESSAGE) {
-                                                                    const steps = form.getFieldValue('config') || [];
-                                                                    const step = steps[name] || {};
-                                                                    if (!Array.isArray(step.groups) || step.groups.length === 0) {
-                                                                        const newSteps = [...steps];
-                                                                        newSteps[name] = {
-                                                                            ...step,
-                                                                            groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]
-                                                                        };
-                                                                        form.setFieldsValue({ config: newSteps });
-                                                                    }
+                                                                const steps = form.getFieldValue('config') || [];
+                                                                const step = steps[name] || {};
+                                                                const newSteps = [...steps];
+                                                                if (
+                                                                    value === WorkflowType.MARKETING_MESSAGE &&
+                                                                    (!Array.isArray(step.groups) || step.groups.length === 0)
+                                                                ) {
+                                                                    newSteps[name] = {
+                                                                        ...step,
+                                                                        type: value,
+                                                                        groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }],
+                                                                    };
+                                                                } else {
+                                                                    newSteps[name] = { ...step, type: value };
                                                                 }
+                                                                form.setFieldsValue({ config: newSteps });
                                                             }}
                                                             options={[
                                                                 {
