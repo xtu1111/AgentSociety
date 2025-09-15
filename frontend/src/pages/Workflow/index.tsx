@@ -402,12 +402,15 @@ const WorkflowList: React.FC = () => {
             config.forEach((step, index) => {
                 if (step.type === WorkflowType.MARKETING_MESSAGE) {
                     if (!step.groups || step.groups.length === 0) {
-                        form.setFieldValue(['config', index, 'groups'], [{}]);
+                        form.setFieldValue(['config', index, 'groups'], [{ source: 'company' }]);
                     }
-                    step.groups?.forEach((_: any, gIdx: number) => {
+                    step.groups?.forEach((group: any, gIdx: number) => {
                         const key = `${index}-${gIdx}`;
                         if (!groupTargetAgentModes[key]) {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                        if (!group.source) {
+                            form.setFieldValue(['config', index, 'groups', gIdx, 'source'], 'company');
                         }
                     });
                     return;
@@ -850,7 +853,7 @@ const WorkflowList: React.FC = () => {
 
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
                                                            return (
-                                                               <Form.List name={[name, 'groups']}>
+                                                               <Form.List name={[name, 'groups']} initialValue={[{ source: 'company' }]}> 
                                                                    {(fields, { add, remove }) => (
                                                                        <>
                                                                            {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
