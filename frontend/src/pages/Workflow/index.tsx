@@ -958,6 +958,7 @@ const WorkflowList: React.FC = () => {
                                                                                                name={[groupName, 'source']}
                                                                                                label={t('workflow.messageSource')}
                                                                                                tooltip={t('workflow.messageSourceTooltip')}
+                                                                                               rules={[{ required: true, message: t('workflow.pleaseSelectMessageSource') }]}
                                                                                                initialValue="company"
                                                                                                style={{ marginBottom: 8 }}
                                                                                            >
@@ -968,12 +969,13 @@ const WorkflowList: React.FC = () => {
                                                                                                        { value: 'government', label: t('workflow.messageSourceOptions.government') },
                                                                                                        { value: 'influencer', label: t('workflow.messageSourceOptions.influencer') },
                                                                                                        { value: 'media', label: t('workflow.messageSourceOptions.media') },
+                                                                                                       { value: 'peer', label: t('workflow.messageSourceOptions.peer') },
                                                                                                        { value: 'other', label: t('workflow.messageSourceOptions.other') },
                                                                                                    ]}
                                                                                                />
                                                                                            </Form.Item>
-                                                                                       </Col>
-                                                                                   </Row>
+                                                                                      </Col>
+                                                                                  </Row>
                                                                                    <Row>
                                                                                        <Col span={24}>
                                                                                            <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(groupName)} />
