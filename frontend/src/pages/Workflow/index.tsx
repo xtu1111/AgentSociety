@@ -881,7 +881,7 @@ const WorkflowList: React.FC = () => {
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
                                                            return (
                                                                <Col span={24}>
-                                                                   <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, source: 'company' }]}> 
+                                                                   <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]}> 
                                                                        {(fields, { add, remove }) => (
                                                                            <>
                                                                                {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
@@ -963,6 +963,7 @@ const WorkflowList: React.FC = () => {
                                                                                                    name={[groupName, 'source']}
                                                                                                    label={t('workflow.messageSource')}
                                                                                                    tooltip={t('workflow.messageSourceTooltip')}
+                                                                                                   rules={[{ required: true, message: t('workflow.pleaseSelectMessageSource') }]}
                                                                                                    initialValue="company"
                                                                                                    style={{ marginBottom: 8 }}
                                                                                                >
@@ -990,7 +991,7 @@ const WorkflowList: React.FC = () => {
                                                                                <Form.Item style={{ marginBottom: 8 }}>
                                                                                    <Button
                                                                                        type="dashed"
-                                                                                       onClick={() => add({ intervene_message: '', reach_prob: 1, source: 'company' })}
+                                                                                       onClick={() => add({ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' })}
                                                                                        icon={<PlusOutlined />}
                                                                                    >
                                                                                        {t('workflow.addReachGroup')}

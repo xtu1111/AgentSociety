@@ -32,12 +32,13 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 # coefficient for interest similarity boost
 BETA = 0.5
 
-# trust factors for external sources
+# trust factors for message sources
 SOURCE_TRUST = {
     "company": 0.7,
     "government": 0.9,
     "influencer": 0.6,
     "media": 0.8,
+    "peer": 0.3,
     "other": 1.0,
 }
 
@@ -96,12 +97,11 @@ def get_trust_factor(source: str, sender_id: int | None, receiver_profile: dict)
     """Return trust factor based on message source and connection strength."""
     src = str(source).lower()
     if src == "peer":
-        if sender_id is None:
-            return 0.3
-        for conn in receiver_profile.get("connections", []):
-            if conn.get("target") == sender_id:
-                return float(conn.get("strength", 0.3))
-        return 0.3
+        if sender_id is not None:
+            for conn in receiver_profile.get("connections", []):
+                if conn.get("target") == sender_id:
+                    return float(conn.get("strength", SOURCE_TRUST["peer"]))
+        return SOURCE_TRUST["peer"]
     return SOURCE_TRUST.get(src, SOURCE_TRUST["other"])
 
 
