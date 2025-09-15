@@ -1858,7 +1858,7 @@ class SimulationEngine:
                                 current_tick = self.environment.get_tick()
                                 if current_tick < target_tick:
                                     await self.step(target_tick - current_tick)
-                            source = getattr(group, "source", "company")
+                            source = getattr(group, "source", getattr(step, "source", "company"))
                             targets = (
                                 await self.filter()
                                 if source == "other"

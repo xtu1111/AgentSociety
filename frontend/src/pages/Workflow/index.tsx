@@ -402,6 +402,11 @@ const WorkflowList: React.FC = () => {
             config.forEach((step, index) => {
                 if (step.type === WorkflowType.MARKETING_MESSAGE) {
                     const groups = step.groups || [];
+                    if (!step.source) {
+                        const newConfig = [...config];
+                        newConfig[index] = { ...newConfig[index], source: 'company' };
+                        form.setFieldsValue({ config: newConfig });
+                    }
                     if (groups.length === 0) {
                         const newConfig = [...config];
                         newConfig[index] = {
