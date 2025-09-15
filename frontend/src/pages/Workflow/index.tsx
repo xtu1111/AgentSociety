@@ -443,16 +443,19 @@ const WorkflowList: React.FC = () => {
     const handleFormValuesChange = (_changedValues: any, allValues: FormValues) => {
         if (!Array.isArray(allValues.config)) return;
         const newConfig = [...allValues.config];
+        const marketingGroupUpdates: Array<{ index: number; groups: any[] }> = [];
         let updated = false;
         newConfig.forEach((step, index) => {
             // seed marketing-message groups and source defaults
             if (step.type === WorkflowType.MARKETING_MESSAGE) {
                 const groups = Array.isArray(step.groups) ? step.groups : [];
                 if (groups.length === 0) {
+                    const seededGroups = [createMarketingGroup()];
                     newConfig[index] = {
                         ...step,
-                        groups: [createMarketingGroup()],
+                        groups: seededGroups,
                     };
+                    marketingGroupUpdates.push({ index, groups: seededGroups });
                     updated = true;
                 } else {
                     let stepUpdated = false;
@@ -469,6 +472,7 @@ const WorkflowList: React.FC = () => {
                     });
                     if (stepUpdated) {
                         newConfig[index] = { ...step, groups: normalizedGroups };
+                        marketingGroupUpdates.push({ index, groups: normalizedGroups });
                         updated = true;
                     }
                 }
@@ -496,6 +500,9 @@ const WorkflowList: React.FC = () => {
         });
         if (updated) {
             form.setFieldsValue({ config: newConfig });
+            marketingGroupUpdates.forEach(({ index, groups }) => {
+                form.setFieldValue(['config', index, 'groups'], groups);
+            });
         }
     };
 
@@ -669,21 +676,56 @@ const WorkflowList: React.FC = () => {
                                                                 const steps = form.getFieldValue('config') || [];
                                                                 const step = steps[name] || {};
                                                                 const newSteps = [...steps];
+                                                                let normalizedGroups: any[] | undefined;
+
                                                                 if (value === WorkflowType.MARKETING_MESSAGE) {
                                                                     const existingGroups = Array.isArray(step.groups)
                                                                         ? step.groups.map((group: any) => ensureMarketingGroupDefaults(group))
                                                                         : [];
+                                                                    normalizedGroups =
+                                                                        existingGroups.length > 0
+                                                                            ? existingGroups
+                                                                            : [createMarketingGroup()];
+
                                                                     newSteps[name] = {
                                                                         ...step,
                                                                         type: value,
-                                                                        groups: existingGroups.length > 0
-                                                                            ? existingGroups
-                                                                            : [createMarketingGroup()],
+                                                                        groups: normalizedGroups,
                                                                     };
                                                                 } else {
-                                                                    newSteps[name] = { ...step, type: value };
+                                                                    const { groups, intervene_message, reach_prob, repeat, ...rest } = step as any;
+                                                                    newSteps[name] = { ...rest, type: value };
                                                                 }
+
                                                                 form.setFieldsValue({ config: newSteps });
+
+                                                                if (value === WorkflowType.MARKETING_MESSAGE) {
+                                                                    form.setFieldValue(
+                                                                        ['config', name, 'groups'],
+                                                                        normalizedGroups,
+                                                                    );
+                                                                    normalizedGroups?.forEach((_, groupIdx) => {
+                                                                        const key = `${name}-${groupIdx}`;
+                                                                        if (!groupTargetAgentModes[key]) {
+                                                                            handleGroupTargetAgentModeChange(
+                                                                                name,
+                                                                                groupIdx,
+                                                                                'expression',
+                                                                            );
+                                                                        }
+                                                                    });
+                                                                } else {
+                                                                    form.setFieldValue(['config', name, 'groups'], undefined);
+                                                                    setGroupTargetAgentModes((prev) => {
+                                                                        const next = { ...prev };
+                                                                        Object.keys(next).forEach((key) => {
+                                                                            if (key.startsWith(`${name}-`)) {
+                                                                                delete next[key];
+                                                                            }
+                                                                        });
+                                                                        return next;
+                                                                    });
+                                                                }
                                                             }}
                                                             options={[
                                                                 {
@@ -931,7 +973,7 @@ const WorkflowList: React.FC = () => {
                                                         }
 
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
-                                                           return (
+                                                           return (        
                                                                <Col span={24}>
                                                                    <Form.List name={[name, 'groups']} initialValue={[createMarketingGroup()]}> 
                                                                        {(fields, { add, remove }) => (
