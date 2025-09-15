@@ -395,26 +395,35 @@ const WorkflowList: React.FC = () => {
         }));
     };
 
-    // 在表单值变化时更新 target_agent_mode
+    // 在表单值变化时更新 target_agent_mode 并为营销消息组提供默认 source
     const handleFormValuesChange = (changedValues: any, allValues: FormValues) => {
         if (changedValues.config) {
             const config = allValues.config;
             config.forEach((step, index) => {
                 if (step.type === WorkflowType.MARKETING_MESSAGE) {
-                    if (!step.groups || step.groups.length === 0) {
-                        form.setFieldValue(['config', index, 'groups'], [{ source: 'company' }]);
+                    const groups = step.groups || [];
+                    if (groups.length === 0) {
+                        const newConfig = [...config];
+                        newConfig[index] = { ...newConfig[index], groups: [{ source: 'company' }] };
+                        form.setFieldsValue({ config: newConfig });
+                    } else {
+                        groups.forEach((group: any, gIdx: number) => {
+                            const key = `${index}-${gIdx}`;
+                            if (!groupTargetAgentModes[key]) {
+                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                            }
+                            if (!group.source) {
+                                const newConfig = [...config];
+                                const newGroups = [...groups];
+                                newGroups[gIdx] = { ...newGroups[gIdx], source: 'company' };
+                                newConfig[index] = { ...newConfig[index], groups: newGroups };
+                                form.setFieldsValue({ config: newConfig });
+                            }
+                        });
                     }
-                    step.groups?.forEach((group: any, gIdx: number) => {
-                        const key = `${index}-${gIdx}`;
-                        if (!groupTargetAgentModes[key]) {
-                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                        }
-                        if (!group.source) {
-                            form.setFieldValue(['config', index, 'groups', gIdx, 'source'], 'company');
-                        }
-                    });
                     return;
                 }
+
                 if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
                     if (!targetAgentModes[index]) {
                         // 根据 target_agent 的值类型设置默认 mode
@@ -424,7 +433,6 @@ const WorkflowList: React.FC = () => {
                         } else if (typeof targetAgent === 'string') {
                             handleTargetAgentModeChange(index, 'expression');
                         } else if (targetAgent && typeof targetAgent === 'object') {
-                            // 如果是AgentFilterConfig对象
                             const agentFilter = targetAgent as any;
                             if (agentFilter.filter_str) {
                                 handleTargetAgentModeChange(index, 'expression');
@@ -606,6 +614,14 @@ const WorkflowList: React.FC = () => {
                                                         <Select
                                                             style={{ width: '100%' }}
                                                             placeholder={t('workflow.selectStepType')}
+                                                            onChange={(value) => {
+                                                                if (value === WorkflowType.MARKETING_MESSAGE) {
+                                                                    const groups = form.getFieldValue(['config', name, 'groups']);
+                                                                    if (!groups || groups.length === 0) {
+                                                                        form.setFieldValue(['config', name, 'groups'], [{ source: 'company' }]);
+                                                                    }
+                                                                }
+                                                            }}
                                                             options={[
                                                                 {
                                                                     value: WorkflowType.RUN,
