@@ -32,6 +32,15 @@ ID_TO_PROFILE: Dict[int, dict] = {}
 # coefficient for interest similarity boost
 BETA = 0.5
 
+# trust factors for external sources
+SOURCE_TRUST = {
+    "company": 0.7,
+    "government": 0.9,
+    "influencer": 0.6,
+    "media": 0.8,
+    "other": 1.0,
+}
+
 # canonical emotion categories and numeric sentiment scores
 EMOTION_NORMALIZE_MAP = {
     # English
@@ -81,6 +90,19 @@ EMOTION_SCORE_RANGE = {
     "curious": (0.4, 0.59),
     "interested": (0.6, 1.0),
 }
+
+
+def get_trust_factor(source: str, sender_id: int | None, receiver_profile: dict) -> float:
+    """Return trust factor based on message source and connection strength."""
+    src = str(source).lower()
+    if src == "peer":
+        if sender_id is None:
+            return 0.3
+        for conn in receiver_profile.get("connections", []):
+            if conn.get("target") == sender_id:
+                return float(conn.get("strength", 0.3))
+        return 0.3
+    return SOURCE_TRUST.get(src, SOURCE_TRUST["other"])
 
 
 class MarketingParams(AgentParams):
@@ -313,7 +335,11 @@ class MarketingAgent(CitizenAgentBase):
         ID_TO_PROFILE[self.id] = profile
 
     async def _handle_message(
-        self, content: str, sender_id: int | None = None, tags: List[str] | None = None
+        self,
+        content: str,
+        sender_id: int | None = None,
+        tags: List[str] | None = None,
+        source: str = "company",
     ) -> str:
         profile = await self.memory.status.get("profile") or {}
         sentiment = await self.memory.status.get("sentiment")
@@ -321,6 +347,7 @@ class MarketingAgent(CitizenAgentBase):
         friends = await self.memory.status.get("friends") or []
         friend_names = [ID_TO_PROFILE.get(f, {}).get("name", "") for f in friends if f in ID_TO_PROFILE]
         exposure = await self.memory.status.get("exposure_count") or 0
+        exposure_llm = 0 if source == "other" else exposure
 
         (
             llm_sentiment,
@@ -333,7 +360,7 @@ class MarketingAgent(CitizenAgentBase):
             attitude,
             need,
         ) = await _consult_llm(
-            self, profile, sentiment, adopted, content, friend_names, exposure
+            self, profile, sentiment, adopted, content, friend_names, exposure_llm
         )
 
         attitude_norm = EMOTION_NORMALIZE_MAP.get(str(attitude).strip().lower())
@@ -350,8 +377,9 @@ class MarketingAgent(CitizenAgentBase):
         combined_sentiment = float(np.clip(combined_sentiment, low, high))
 
         delta = combined_sentiment - sentiment
-        fatigue = float(np.exp(-0.3 * (exposure - 1)))
-        effective_sentiment = sentiment + delta * fatigue
+        fatigue = 1.0 if source == "other" else float(np.exp(-0.3 * (exposure - 1)))
+        trust = get_trust_factor(source, sender_id, profile)
+        effective_sentiment = sentiment + trust * delta * fatigue
 
         # ⚠️ 关键：保证 sentiment 和 emotion 严格对应
         effective_sentiment = float(np.clip(effective_sentiment, low, high))
@@ -360,8 +388,9 @@ class MarketingAgent(CitizenAgentBase):
         final_adopted = effective_sentiment >= self.sentiment_adoption_threshold
 
         # -------- exposure 更新 --------
-        exposure += 1
-        await self.memory.status.update("exposure_count", exposure)
+        if source != "other":
+            exposure += 1
+            await self.memory.status.update("exposure_count", exposure)
 
         # -------- 状态更新 --------
         await self.memory.status.update("sentiment", effective_sentiment)
@@ -377,6 +406,7 @@ class MarketingAgent(CitizenAgentBase):
                     (f"sentiment:{self.id}", float(effective_sentiment), exposure),
                     (f"adopted:{self.id}", 1.0 if final_adopted else 0.0, exposure),
                     (f"emotion:{self.id}", float(effective_sentiment), exposure),
+                    (f"message_source:{source}:{self.id}", 1.0, exposure),
                 ]
             )
 
@@ -388,7 +418,7 @@ class MarketingAgent(CitizenAgentBase):
         else:
             share = llm_share
 
-        if share:
+        if share and source != "other":
             await self._share_message(say, tags or [], sender_id, suggested)
 
         return say
@@ -427,18 +457,26 @@ class MarketingAgent(CitizenAgentBase):
         shared += len(chosen)
         await self.memory.status.update("messages_shared", shared)
         for fid in chosen:
-            await self.send_message_to_agent(fid, content)
+            await self.send_message_to_agent(fid, content, source="peer")
 
     async def do_chat(self, message: Message) -> str:
         sender_id = message.from_id
-        raw = str(message.payload)
+        payload = message.payload
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False) if isinstance(payload, dict) else str(payload)
         if not raw:
             return ""
         key = (sender_id or -1, raw)
         if key in self.processed_msgs:
             return ""
         self.processed_msgs.add(key)
-        content = _extract_text(str(raw))
+        if isinstance(payload, dict):
+            content = _extract_text(str(payload.get("content", "")))
+            tags = payload.get("tags", [])
+            source = payload.get("source", "peer")
+        else:
+            content = _extract_text(str(payload))
+            tags = []
+            source = "peer"
 
         if self.database_writer is not None:
             storage_dialog = StorageDialog(
@@ -452,7 +490,7 @@ class MarketingAgent(CitizenAgentBase):
             )
             await self.database_writer.write_dialogs([storage_dialog])
 
-        return await self._handle_message(content, sender_id, [])
+        return await self._handle_message(content, sender_id, tags, source)
 
     async def react_to_intervention(self, intervention_message: str):
         """Handle incoming marketing intervention payloads."""
@@ -460,11 +498,15 @@ class MarketingAgent(CitizenAgentBase):
         try:
             data = json.loads(intervention_message)
             content = data.get("content", intervention_message)
-            tags: List[str] = data.get("tags", []) if isinstance(data.get("tags"), list) else []
+            tags: List[str] = (
+                data.get("tags", []) if isinstance(data.get("tags"), list) else []
+            )
+            source = data.get("source", "company")
         except Exception:
             content = intervention_message
             tags = []
-        await self._handle_message(content, None, tags)
+            source = "company"
+        await self._handle_message(content, None, tags, source)
 
     async def forward(self) -> None:
         """Execute one simulation tick."""

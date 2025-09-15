@@ -245,7 +245,11 @@ class Agent(ABC):
         raise NotImplementedError("This method should be implemented by subclasses")
 
     async def send_message_to_agent(
-        self, to_agent_id: int, content: str, type: str = "social"
+        self,
+        to_agent_id: int,
+        content: str,
+        type: str = "social",
+        source: str = "peer",
     ):
         """
         Send a social or economy message to another agent.
@@ -254,6 +258,7 @@ class Agent(ABC):
             - `to_agent_id` (`int`): The ID of the recipient agent.
             - `content` (`str`): The content of the message to send.
             - `type` (`str`, optional): The type of the message ("social" or "economy"). Defaults to "social".
+            - `source` (`str`, optional): The source of the message. Defaults to "peer".
 
         - **Raises**:
             - `RuntimeError`: If the Messager is not set.
@@ -275,6 +280,8 @@ class Agent(ABC):
         payload = {
             "content": content,
             "type": type,
+            "source": source,
+            "sender_id": self.id,
         }
         await self.messager.send_message(
             Message(

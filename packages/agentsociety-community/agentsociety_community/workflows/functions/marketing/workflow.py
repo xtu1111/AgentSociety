@@ -72,6 +72,7 @@ MARKETING_WORKFLOW = ExpConfig(
                 "with natural caffeine and B vitamins for steady energy without the crash."
             ),
             reach_prob=0.6,
+            source="company",
         ),
         WorkflowStepConfig(type=WorkflowType.STEP, steps=2, ticks_per_step=3600),
         WorkflowStepConfig(
@@ -80,6 +81,7 @@ MARKETING_WORKFLOW = ExpConfig(
                 "Rumor 10:00 - Social media posts claim Z-Energy Zero gives people headaches and jitters."
             ),
             reach_prob=0.8,
+            source="influencer",
         ),
         WorkflowStepConfig(type=WorkflowType.STEP, steps=2, ticks_per_step=3600),
         WorkflowStepConfig(
@@ -89,6 +91,7 @@ MARKETING_WORKFLOW = ExpConfig(
                 "and no evidence links the drink to headaches."
             ),
             reach_prob=0.7,
+            source="company",
         ),
         WorkflowStepConfig(type=WorkflowType.STEP, steps=2, ticks_per_step=3600),
         WorkflowStepConfig(type=WorkflowType.FUNCTION, func=report_sentiment),

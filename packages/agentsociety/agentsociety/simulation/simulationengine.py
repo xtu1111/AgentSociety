@@ -1837,8 +1837,15 @@ class SimulationEngine:
                     target_agent_ids = await self._extract_target_agent_ids(
                         step.target_agent
                     )
+                    payload = json.dumps(
+                        {
+                            "content": step.intervene_message,
+                            "source": getattr(step, "source", "company"),
+                        },
+                        ensure_ascii=False,
+                    )
                     await self.send_intervention_message(
-                        step.intervene_message, target_agent_ids
+                        payload, target_agent_ids
                     )
                 elif step.type == WorkflowType.MARKETING_MESSAGE:
                     if step.groups:
@@ -1851,21 +1858,34 @@ class SimulationEngine:
                                 current_tick = self.environment.get_tick()
                                 if current_tick < target_tick:
                                     await self.step(target_tick - current_tick)
+                            source = getattr(group, "source", "company")
                             targets = (
-                                await self._extract_target_agent_ids(group.target_agent)
-                                if group.target_agent is not None
-                                else await self.filter()
+                                await self.filter()
+                                if source == "other"
+                                else (
+                                    await self._extract_target_agent_ids(group.target_agent)
+                                    if group.target_agent is not None
+                                    else await self.filter()
+                                )
                             )
-                            for _ in range(group.repeat):
-                                chosen: list[int] = []
-                                for cid in targets:
-                                    if random.random() <= group.reach_prob:
-                                        chosen.append(cid)
+                            repeats = group.repeat if source != "other" else 1
+                            for _ in range(repeats):
+                                if source == "other":
+                                    chosen = list(targets)
+                                else:
+                                    chosen = []
+                                    for cid in targets:
+                                        if random.random() <= group.reach_prob:
+                                            chosen.append(cid)
                                 if chosen:
-                                    payload = json.dumps({
-                                        "content": group.intervene_message,
-                                        "tags": group.tags or [],
-                                    }, ensure_ascii=False)
+                                    payload = json.dumps(
+                                        {
+                                            "content": group.intervene_message,
+                                            "tags": group.tags or [],
+                                            "source": source,
+                                        },
+                                        ensure_ascii=False,
+                                    )
                                     await self.send_intervention_message(payload, chosen)
                     else:
                         if step.send_time is not None:
@@ -1877,30 +1897,43 @@ class SimulationEngine:
                             if current_tick < target_tick:
                                 await self.step(target_tick - current_tick)
                         assert step.intervene_message is not None
+                        source = getattr(step, "source", "company")
                         targets = (
-                            await self._extract_target_agent_ids(step.target_agent)
-                            if step.target_agent is not None
-                            else await self.filter()
+                            await self.filter()
+                            if source == "other"
+                            else (
+                                await self._extract_target_agent_ids(step.target_agent)
+                                if step.target_agent is not None
+                                else await self.filter()
+                            )
                         )
-                        for _ in range(step.repeat):
-                            chosen: list[int] = []
-                            for cid in targets:
-                                profile = self._filter_base[cid][1]
-                                prob = 0.0
-                                if isinstance(step.reach_prob, dict):
-                                    for expr, p in step.reach_prob.items():
-                                        if evaluate_filter(expr, profile):
-                                            prob = p
-                                            break
-                                else:
-                                    prob = step.reach_prob
-                                if random.random() <= prob:
-                                    chosen.append(cid)
+                        repeats = step.repeat if source != "other" else 1
+                        for _ in range(repeats):
+                            if source == "other":
+                                chosen = list(targets)
+                            else:
+                                chosen = []
+                                for cid in targets:
+                                    profile = self._filter_base[cid][1]
+                                    prob = 0.0
+                                    if isinstance(step.reach_prob, dict):
+                                        for expr, p in step.reach_prob.items():
+                                            if evaluate_filter(expr, profile):
+                                                prob = p
+                                                break
+                                    else:
+                                        prob = step.reach_prob
+                                    if random.random() <= prob:
+                                        chosen.append(cid)
                             if chosen:
-                                payload = json.dumps({
-                                    "content": step.intervene_message,
-                                    "tags": step.tags or [],
-                                }, ensure_ascii=False)
+                                payload = json.dumps(
+                                    {
+                                        "content": step.intervene_message,
+                                        "tags": step.tags or [],
+                                        "source": source,
+                                    },
+                                    ensure_ascii=False,
+                                )
                                 await self.send_intervention_message(payload, chosen)
                 elif step.type == WorkflowType.SAVE_CONTEXT:
                     assert step.target_agent is not None
@@ -1921,8 +1954,15 @@ class SimulationEngine:
                     target_agent_ids = await self._extract_target_agent_ids(
                         step.target_agent
                     )
+                    payload = json.dumps(
+                        {
+                            "content": step.intervene_message,
+                            "source": getattr(step, "source", "company"),
+                        },
+                        ensure_ascii=False,
+                    )
                     await self.send_intervention_message(
-                        step.intervene_message, target_agent_ids
+                        payload, target_agent_ids
                     )
                 elif step.type == WorkflowType.FUNCTION:
                     assert step.func is not None

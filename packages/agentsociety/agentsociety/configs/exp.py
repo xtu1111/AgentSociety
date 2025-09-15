@@ -108,6 +108,9 @@ class MarketingGroupConfig(BaseModel):
     tags: Optional[List[str]] = None
     """Optional list of tags describing the marketing message"""
 
+    source: str = "company"
+    """Source of the marketing message (company, government, influencer, media, peer, other)"""
+
     @model_validator(mode="after")
     def validate_prob(self):
         if not 0 <= self.reach_prob <= 1:
@@ -166,6 +169,9 @@ class WorkflowStepConfig(BaseModel):
     """Optional list of marketing message groups"""
     tags: Optional[List[str]] = None
     """Optional list of tags for the marketing message"""
+
+    source: str = "company"
+    """Source of the intervention message (company, government, influencer, media, peer, other)"""
 
     description: Optional[str] = None
     """A descriptive text explaining the workflow step"""

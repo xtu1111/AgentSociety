@@ -95,6 +95,8 @@ export interface WorkflowStepConfig {
   send_time?: string;
   groups?: MarketingGroupConfig[];
   tags?: string[];
+  // message origin: company | government | influencer | media | peer | other (🌍 Global)
+  source?: string;
   description?: string;
 }
 
@@ -106,6 +108,8 @@ export interface MarketingGroupConfig {
   send_time?: string;
   description?: string;
   tags?: string[];
+  // message origin: company | government | influencer | media | peer | other (🌍 Global)
+  source?: string;
 }
 
 export interface MetricExtractorConfig {
