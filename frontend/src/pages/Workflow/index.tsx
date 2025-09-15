@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Card, Space, Modal, message, Tooltip, Input, Popconfirm, Form, Col, Row, InputNumber, Select, Divider, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, ExportOutlined, MinusCircleOutlined, QuestionCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { ConfigWrapper, WorkflowStepConfig, ExpConfig } from '../../types/config';
@@ -7,6 +7,34 @@ import { fetchCustom } from '../../components/fetch';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { Survey } from '../../components/type';
+
+const MARKETING_MESSAGE_GROUP_DEFAULT = {
+    intervene_message: '',
+    reach_prob: 1,
+    repeat: 1,
+    source: 'company',
+};
+
+const MESSAGE_SOURCE_OPTIONS = [
+    { value: 'company', labelKey: 'workflow.messageSourceOptions.company' },
+    { value: 'government', labelKey: 'workflow.messageSourceOptions.government' },
+    { value: 'influencer', labelKey: 'workflow.messageSourceOptions.influencer' },
+    { value: 'media', labelKey: 'workflow.messageSourceOptions.media' },
+    { value: 'peer', labelKey: 'workflow.messageSourceOptions.peer' },
+    { value: 'other', labelKey: 'workflow.messageSourceOptions.other' },
+] as const;
+
+const createMarketingGroup = () => ({ ...MARKETING_MESSAGE_GROUP_DEFAULT });
+
+const ensureMarketingGroupDefaults = (group: any) => {
+    if (!group || typeof group !== 'object' || Array.isArray(group)) {
+        return createMarketingGroup();
+    }
+    if (!group.source) {
+        return { ...group, source: MARKETING_MESSAGE_GROUP_DEFAULT.source };
+    }
+    return group;
+};
 interface FormValues {
     name: string;
     description?: string;
@@ -27,6 +55,10 @@ const WorkflowList: React.FC = () => {
     const [groupTargetAgentModes, setGroupTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
     const [agentClasses, setAgentClasses] = useState<{ [agentType: string]: { value: string; label: string }[] }>({});
     const [loadingAgentClasses, setLoadingAgentClasses] = useState<{ [agentType: string]: boolean }>({});
+    const messageSourceOptions = useMemo(
+        () => MESSAGE_SOURCE_OPTIONS.map(({ value, labelKey }) => ({ value, label: t(labelKey) })),
+        [t]
+    );
 
     // 获取agent classes的函数
     const fetchAgentClasses = async () => {
@@ -153,21 +185,19 @@ const WorkflowList: React.FC = () => {
             if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
                 if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
                     step.groups = step.groups.map((g: any, gIdx: number) => {
-                        if (g.target_agent && typeof g.target_agent === 'object' && !Array.isArray(g.target_agent)) {
-                            const agentFilter = g.target_agent as any;
+                        let normalized = ensureMarketingGroupDefaults(g);
+                        if (normalized.target_agent && typeof normalized.target_agent === 'object' && !Array.isArray(normalized.target_agent)) {
+                            const agentFilter = normalized.target_agent as any;
                             if (agentFilter.filter_str) {
                                 handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                return { ...g, target_agent: agentFilter.filter_str };
+                                normalized = { ...normalized, target_agent: agentFilter.filter_str };
                             }
-                        } else if (Array.isArray(g.target_agent)) {
+                        } else if (Array.isArray(normalized.target_agent)) {
                             handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                        } else if (typeof g.target_agent === 'string') {
+                        } else if (typeof normalized.target_agent === 'string') {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
                         }
-                        if (!g.source) {
-                            g.source = 'company';
-                        }
-                        return g;
+                        return normalized;
                     });
                     return step;
                 }
@@ -213,21 +243,19 @@ const WorkflowList: React.FC = () => {
             if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
                 if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
                     step.groups = step.groups.map((g: any, gIdx: number) => {
-                        if (g.target_agent && typeof g.target_agent === 'object' && !Array.isArray(g.target_agent)) {
-                            const agentFilter = g.target_agent as any;
+                        let normalized = ensureMarketingGroupDefaults(g);
+                        if (normalized.target_agent && typeof normalized.target_agent === 'object' && !Array.isArray(normalized.target_agent)) {
+                            const agentFilter = normalized.target_agent as any;
                             if (agentFilter.filter_str) {
                                 handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                return { ...g, target_agent: agentFilter.filter_str };
+                                normalized = { ...normalized, target_agent: agentFilter.filter_str };
                             }
-                        } else if (Array.isArray(g.target_agent)) {
+                        } else if (Array.isArray(normalized.target_agent)) {
                             handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                        } else if (typeof g.target_agent === 'string') {
+                        } else if (typeof normalized.target_agent === 'string') {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
                         }
-                        if (!g.source) {
-                            g.source = 'company';
-                        }
-                        return g;
+                        return normalized;
                     });
                     return step;
                 }
@@ -328,18 +356,18 @@ const WorkflowList: React.FC = () => {
                         if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
                             step.groups = step.groups.map((g: any, gIdx: number) => {
                                 const mode = groupTargetAgentModes[`${idx}-${gIdx}`];
-                                const withSource = { source: g.source ?? 'company', ...g };
+                                const normalized = ensureMarketingGroupDefaults(g);
                                 if (
                                     mode === 'expression' &&
-                                    typeof withSource.target_agent === 'string' &&
-                                    withSource.target_agent.trim()
+                                    typeof normalized.target_agent === 'string' &&
+                                    normalized.target_agent.trim()
                                 ) {
                                     return {
-                                        ...withSource,
-                                        target_agent: { filter_str: withSource.target_agent },
+                                        ...normalized,
+                                        target_agent: { filter_str: normalized.target_agent },
                                     };
                                 }
-                                return withSource;
+                                return normalized;
                             });
                             delete step.target_agent;
                             delete step.intervene_message;
@@ -419,27 +447,29 @@ const WorkflowList: React.FC = () => {
         newConfig.forEach((step, index) => {
             // seed marketing-message groups and source defaults
             if (step.type === WorkflowType.MARKETING_MESSAGE) {
-                const groups = step.groups || [];
+                const groups = Array.isArray(step.groups) ? step.groups : [];
                 if (groups.length === 0) {
                     newConfig[index] = {
                         ...step,
-                        groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }],
+                        groups: [createMarketingGroup()],
                     };
                     updated = true;
                 } else {
-                    const updatedGroups = groups.map((group: any, gIdx: number) => {
+                    let stepUpdated = false;
+                    const normalizedGroups = groups.map((group: any, gIdx: number) => {
                         const key = `${index}-${gIdx}`;
                         if (!groupTargetAgentModes[key]) {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
                         }
-                        if (!group.source) {
-                            updated = true;
-                            return { ...group, source: 'company' };
+                        const normalizedGroup = ensureMarketingGroupDefaults(group);
+                        if (normalizedGroup !== group) {
+                            stepUpdated = true;
                         }
-                        return group;
+                        return normalizedGroup;
                     });
-                    if (updated) {
-                        newConfig[index] = { ...step, groups: updatedGroups };
+                    if (stepUpdated) {
+                        newConfig[index] = { ...step, groups: normalizedGroups };
+                        updated = true;
                     }
                 }
             }
@@ -639,14 +669,16 @@ const WorkflowList: React.FC = () => {
                                                                 const steps = form.getFieldValue('config') || [];
                                                                 const step = steps[name] || {};
                                                                 const newSteps = [...steps];
-                                                                if (
-                                                                    value === WorkflowType.MARKETING_MESSAGE &&
-                                                                    (!Array.isArray(step.groups) || step.groups.length === 0)
-                                                                ) {
+                                                                if (value === WorkflowType.MARKETING_MESSAGE) {
+                                                                    const existingGroups = Array.isArray(step.groups)
+                                                                        ? step.groups.map((group: any) => ensureMarketingGroupDefaults(group))
+                                                                        : [];
                                                                     newSteps[name] = {
                                                                         ...step,
                                                                         type: value,
-                                                                        groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }],
+                                                                        groups: existingGroups.length > 0
+                                                                            ? existingGroups
+                                                                            : [createMarketingGroup()],
                                                                     };
                                                                 } else {
                                                                     newSteps[name] = { ...step, type: value };
@@ -901,7 +933,7 @@ const WorkflowList: React.FC = () => {
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
                                                            return (
                                                                <Col span={24}>
-                                                                   <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]}> 
+                                                                   <Form.List name={[name, 'groups']} initialValue={[createMarketingGroup()]}>
                                                                        {(fields, { add, remove }) => (
                                                                            <>
                                                                                {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
@@ -989,14 +1021,8 @@ const WorkflowList: React.FC = () => {
                                                                                                >
                                                                                                    <Select
                                                                                                        style={{ width: '100%' }}
-                                                                                                       options={[
-                                                                                                           { value: 'company', label: t('workflow.messageSourceOptions.company') },
-                                                                                                           { value: 'government', label: t('workflow.messageSourceOptions.government') },
-                                                                                                           { value: 'influencer', label: t('workflow.messageSourceOptions.influencer') },
-                                                                                                           { value: 'media', label: t('workflow.messageSourceOptions.media') },
-                                                                                                           { value: 'peer', label: t('workflow.messageSourceOptions.peer') },
-                                                                                                           { value: 'other', label: t('workflow.messageSourceOptions.other') },
-                                                                                                       ]}
+                                                                                                       placeholder={t('workflow.pleaseSelectMessageSource')}
+                                                                                                       options={messageSourceOptions}
                                                                                                    />
                                                                                                </Form.Item>
                                                                                            </Col>
@@ -1011,7 +1037,7 @@ const WorkflowList: React.FC = () => {
                                                                                <Form.Item style={{ marginBottom: 8 }}>
                                                                                    <Button
                                                                                        type="dashed"
-                                                                                       onClick={() => add({ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' })}
+                                                                                       onClick={() => add(createMarketingGroup())}
                                                                                        icon={<PlusOutlined />}
                                                                                    >
                                                                                        {t('workflow.addReachGroup')}
