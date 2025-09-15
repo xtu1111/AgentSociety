@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
+import path from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -17,6 +18,11 @@ export default defineConfig({
     },
     plugins: [react()],
     base: '/',
+    resolve: {
+        alias: {
+            child_process: path.resolve(__dirname, 'src/shims/childProcess.ts'),
+        },
+    },
     build: {
         outDir: 'dist',
         assetsDir: 'assets',
