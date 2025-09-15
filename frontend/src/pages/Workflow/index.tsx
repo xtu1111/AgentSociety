@@ -398,26 +398,33 @@ const WorkflowList: React.FC = () => {
     // 在表单值变化时更新 target_agent_mode 并为营销消息组提供默认 source
     const handleFormValuesChange = (_changedValues: any, allValues: FormValues) => {
         if (!Array.isArray(allValues.config)) return;
-        allValues.config.forEach((step, index) => {
+        const newConfig = [...allValues.config];
+        let updated = false;
+        newConfig.forEach((step, index) => {
             // seed marketing-message groups and source defaults
             if (step.type === WorkflowType.MARKETING_MESSAGE) {
                 const groups = step.groups || [];
                 if (groups.length === 0) {
-                    form.setFieldValue([
-                        'config',
-                        index,
-                        'groups'
-                    ], [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]);
+                    newConfig[index] = {
+                        ...step,
+                        groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }],
+                    };
+                    updated = true;
                 } else {
-                    groups.forEach((group: any, gIdx: number) => {
+                    const updatedGroups = groups.map((group: any, gIdx: number) => {
                         const key = `${index}-${gIdx}`;
                         if (!groupTargetAgentModes[key]) {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
                         }
                         if (!group.source) {
-                            form.setFieldValue(['config', index, 'groups', gIdx, 'source'], 'company');
+                            updated = true;
+                            return { ...group, source: 'company' };
                         }
+                        return group;
                     });
+                    if (updated) {
+                        newConfig[index] = { ...step, groups: updatedGroups };
+                    }
                 }
             }
 
@@ -441,6 +448,9 @@ const WorkflowList: React.FC = () => {
                 }
             }
         });
+        if (updated) {
+            form.setFieldsValue({ config: newConfig });
+        }
     };
 
     // Table columns
@@ -611,13 +621,15 @@ const WorkflowList: React.FC = () => {
                                                             placeholder={t('workflow.selectStepType')}
                                                             onChange={(value) => {
                                                                 if (value === WorkflowType.MARKETING_MESSAGE) {
-                                                                    const groups = form.getFieldValue(['config', name, 'groups']);
-                                                                    if (!groups || groups.length === 0) {
-                                                                        form.setFieldValue([
-                                                                            'config',
-                                                                            name,
-                                                                            'groups'
-                                                                        ], [{ intervene_message: '', reach_prob: 1, source: 'company' }]);
+                                                                    const steps = form.getFieldValue('config') || [];
+                                                                    const step = steps[name] || {};
+                                                                    if (!Array.isArray(step.groups) || step.groups.length === 0) {
+                                                                        const newSteps = [...steps];
+                                                                        newSteps[name] = {
+                                                                            ...step,
+                                                                            groups: [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]
+                                                                        };
+                                                                        form.setFieldsValue({ config: newSteps });
                                                                     }
                                                                 }
                                                             }}
