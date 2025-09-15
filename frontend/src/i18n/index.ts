@@ -30,6 +30,7 @@ import zhProfile from './locales/zh/profile';
 import enExperiment from './locales/en/experiment';
 import zhExperiment from './locales/zh/experiment';
 import jaCommon from './locales/ja/common';
+import jaWorkflow from './locales/ja/workflow';
 
 // Combine translations
 const resources = {
@@ -69,7 +70,8 @@ const resources = {
     },
     ja: {
         translation: {
-            ...jaCommon
+            ...jaCommon,
+            workflow: jaWorkflow,
         }
     }
 };
