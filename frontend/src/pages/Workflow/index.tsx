@@ -404,7 +404,10 @@ const WorkflowList: React.FC = () => {
                     const groups = step.groups || [];
                     if (groups.length === 0) {
                         const newConfig = [...config];
-                        newConfig[index] = { ...newConfig[index], groups: [{ source: 'company' }] };
+                        newConfig[index] = {
+                            ...newConfig[index],
+                            groups: [{ intervene_message: '', reach_prob: 1, source: 'company' }]
+                        };
                         form.setFieldsValue({ config: newConfig });
                     } else {
                         groups.forEach((group: any, gIdx: number) => {
@@ -618,7 +621,11 @@ const WorkflowList: React.FC = () => {
                                                                 if (value === WorkflowType.MARKETING_MESSAGE) {
                                                                     const groups = form.getFieldValue(['config', name, 'groups']);
                                                                     if (!groups || groups.length === 0) {
-                                                                        form.setFieldValue(['config', name, 'groups'], [{ source: 'company' }]);
+                                                                        form.setFieldValue([
+                                                                            'config',
+                                                                            name,
+                                                                            'groups'
+                                                                        ], [{ intervene_message: '', reach_prob: 1, source: 'company' }]);
                                                                     }
                                                                 }
                                                             }}
@@ -869,7 +876,7 @@ const WorkflowList: React.FC = () => {
 
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
                                                            return (
-                                                               <Form.List name={[name, 'groups']} initialValue={[{ source: 'company' }]}> 
+                                                               <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, source: 'company' }]}> 
                                                                    {(fields, { add, remove }) => (
                                                                        <>
                                                                            {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
@@ -975,10 +982,14 @@ const WorkflowList: React.FC = () => {
                                                                                </React.Fragment>
                                                                            ))}
                                                                            <Form.Item style={{ marginBottom: 8 }}>
-                                                                               <Button type="dashed" onClick={() => add({ source: 'company' })} icon={<PlusOutlined />}>
+                                                                               <Button
+                                                                                   type="dashed"
+                                                                                   onClick={() => add({ intervene_message: '', reach_prob: 1, source: 'company' })}
+                                                                                   icon={<PlusOutlined />}
+                                                                               >
                                                                                    {t('workflow.addReachGroup')}
                                                                                </Button>
-                                                                           </Form.Item>
+                                                                          </Form.Item>
                                                                        </>
                                                                    )}
                                                                </Form.List>
