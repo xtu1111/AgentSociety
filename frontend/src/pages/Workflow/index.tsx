@@ -164,6 +164,9 @@ const WorkflowList: React.FC = () => {
                         } else if (typeof g.target_agent === 'string') {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
                         }
+                        if (!g.source) {
+                            g.source = 'company';
+                        }
                         return g;
                     });
                     return step;
@@ -220,6 +223,9 @@ const WorkflowList: React.FC = () => {
                             handleGroupTargetAgentModeChange(index, gIdx, 'list');
                         } else if (typeof g.target_agent === 'string') {
                             handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                        if (!g.source) {
+                            g.source = 'company';
                         }
                         return g;
                     });
@@ -943,16 +949,36 @@ const WorkflowList: React.FC = () => {
                                                                                            <Input type="number" min={0} max={1} step={0.01} />
                                                                                        </Form.Item>
                                                                                    </Col>
+                                                                                  <Col span={6}>
+                                                                                      <Form.Item
+                                                                                          {...field}
+                                                                                          name={[field.name, 'repeat']}
+                                                                                          label={t('workflow.repeat')}
+                                                                                          tooltip={t('workflow.repeat')}
+                                                                                          initialValue={1}
+                                                                                          style={{ marginBottom: 8 }}
+                                                                                      >
+                                                                                          <InputNumber min={1} />
+                                                                                      </Form.Item>
+                                                                                  </Col>
                                                                                    <Col span={6}>
                                                                                        <Form.Item
                                                                                            {...field}
-                                                                                           name={[field.name, 'repeat']}
-                                                                                           label={t('workflow.repeat')}
-                                                                                           tooltip={t('workflow.repeat')}
-                                                                                           initialValue={1}
+                                                                                           name={[field.name, 'source']}
+                                                                                           label={t('workflow.messageSource')}
+                                                                                           tooltip={t('workflow.messageSourceTooltip')}
+                                                                                           initialValue="company"
                                                                                            style={{ marginBottom: 8 }}
                                                                                        >
-                                                                                           <InputNumber min={1} />
+                                                                                           <Select
+                                                                                               options={[
+                                                                                                   { value: 'company', label: t('workflow.messageSourceOptions.company') },
+                                                                                                   { value: 'government', label: t('workflow.messageSourceOptions.government') },
+                                                                                                   { value: 'influencer', label: t('workflow.messageSourceOptions.influencer') },
+                                                                                                   { value: 'media', label: t('workflow.messageSourceOptions.media') },
+                                                                                                   { value: 'other', label: t('workflow.messageSourceOptions.other') },
+                                                                                               ]}
+                                                                                           />
                                                                                        </Form.Item>
                                                                                    </Col>
                                                                                    <Col span={2}>
@@ -961,7 +987,7 @@ const WorkflowList: React.FC = () => {
                                                                                </Row>
                                                                            ))}
                                                                            <Form.Item style={{ marginBottom: 8 }}>
-                                                                               <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />}>
+                                                                               <Button type="dashed" onClick={() => add({ source: 'company' })} icon={<PlusOutlined />}>
                                                                                    {t('workflow.addReachGroup')}
                                                                                </Button>
                                                                            </Form.Item>
