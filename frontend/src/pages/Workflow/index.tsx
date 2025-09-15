@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Button, Card, Space, Modal, message, Tooltip, Input, Popconfirm, Form, Col, Row, InputNumber, Select, Divider, Alert } from 'antd';
+import { Table, Button, Card, Space, Modal, message, Tooltip, Input, Popconfirm, Form, Col, Row, InputNumber, Select, Divider, Alert, SelectProps } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, ExportOutlined, MinusCircleOutlined, QuestionCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { ConfigWrapper, WorkflowStepConfig, ExpConfig } from '../../types/config';
 import { WorkflowType } from '../../utils/enums';
@@ -57,6 +57,132 @@ const WorkflowList: React.FC = () => {
     const [loadingAgentClasses, setLoadingAgentClasses] = useState<{ [agentType: string]: boolean }>({});
     const messageSourceOptions = useMemo(
         () => MESSAGE_SOURCE_OPTIONS.map(({ value, labelKey }) => ({ value, label: t(labelKey) })),
+        [t]
+    );
+    const stepTypeOptions = useMemo<SelectProps<WorkflowType>['options']>(
+        () => [
+            {
+                value: WorkflowType.RUN,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.run')}
+                        <Tooltip title={t('workflow.runTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.STEP,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.step')}
+                        <Tooltip title={t('workflow.stepTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.ENVIRONMENT_INTERVENE,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.environmentIntervene')}
+                        <Tooltip title={t('workflow.environmentInterveneTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.UPDATE_STATE_INTERVENE,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.update_state_intervene')}
+                        <Tooltip title={t('workflow.update_state_interveneTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.MESSAGE_INTERVENE,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.message_intervene')}
+                        <Tooltip title={t('workflow.message_interveneTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.MARKETING_MESSAGE,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.marketing_message')}
+                        <Tooltip title={t('workflow.marketing_messageTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.SURVEY,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.survey')}
+                        <Tooltip title={t('workflow.surveyTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.NEXT_ROUND,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.nextRound')}
+                        <Tooltip title={t('workflow.nextRoundTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.INTERVIEW,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.interview')}
+                        <Tooltip title={t('workflow.interviewTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.FUNCTION,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.function')}
+                        <Tooltip title={t('workflow.functionTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+            {
+                value: WorkflowType.SAVE_CONTEXT,
+                label: (
+                    <Space size={4}>
+                        {t('workflow.saveContext')}
+                        <Tooltip title={t('workflow.saveContextTooltip')}>
+                            <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                    </Space>
+                ),
+            },
+        ],
         [t]
     );
 
@@ -727,129 +853,7 @@ const WorkflowList: React.FC = () => {
                                                                     });
                                                                 }
                                                             }}
-                                                            options={[
-                                                                {
-                                                                    value: WorkflowType.RUN,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.run')}
-                                                                            <Tooltip title={t('workflow.runTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.STEP,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.step')}
-                                                                            <Tooltip title={t('workflow.stepTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.ENVIRONMENT_INTERVENE,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.environmentIntervene')}
-                                                                            <Tooltip title={t('workflow.environmentInterveneTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.UPDATE_STATE_INTERVENE,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.update_state_intervene')}
-                                                                            <Tooltip title={t('workflow.update_state_interveneTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.MESSAGE_INTERVENE,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.message_intervene')}
-                                                                            <Tooltip title={t('workflow.message_interveneTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.MARKETING_MESSAGE,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.marketing_message')}
-                                                                            <Tooltip title={t('workflow.marketing_messageTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.SURVEY,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.survey')}
-                                                                            <Tooltip title={t('workflow.surveyTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.NEXT_ROUND,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.nextRound')}
-                                                                            <Tooltip title={t('workflow.nextRoundTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.INTERVIEW,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.interview')}
-                                                                            <Tooltip title={t('workflow.interviewTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.FUNCTION,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.function')}
-                                                                            <Tooltip title={t('workflow.functionTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                                {
-                                                                    value: WorkflowType.SAVE_CONTEXT,
-                                                                    label: (
-                                                                        <Space size={4}>
-                                                                            {t('workflow.saveContext')}
-                                                                            <Tooltip title={t('workflow.saveContextTooltip')}>
-                                                                                <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                                                                            </Tooltip>
-                                                                        </Space>
-                                                                    )
-                                                                },
-                                                            ]}
+                                                            options={stepTypeOptions}
                                                         />
                                                     </Form.Item>
                                                 </Col>
