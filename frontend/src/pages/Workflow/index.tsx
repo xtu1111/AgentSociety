@@ -902,7 +902,7 @@ const WorkflowList: React.FC = () => {
             </Col>
         </Row>
         <Row gutter={16}>
-            <Col span={6}>
+            <Col span={8}>
                 <Form.Item
                     {...field}
                     name={[field.name, 'reach_prob']}
@@ -914,7 +914,7 @@ const WorkflowList: React.FC = () => {
                     <Input type="number" min={0} max={1} step={0.01} />
                 </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={8}>
                 <Form.Item
                     {...field}
                     name={[field.name, 'repeat']}
@@ -926,7 +926,7 @@ const WorkflowList: React.FC = () => {
                     <InputNumber min={1} />
                 </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={8}>
                 <Form.Item
                     {...field}
                     name={[field.name, 'source']}
@@ -946,7 +946,9 @@ const WorkflowList: React.FC = () => {
                     />
                 </Form.Item>
             </Col>
-            <Col span={6}>
+        </Row>
+        <Row>
+            <Col span={24}>
                 <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />
             </Col>
         </Row>
