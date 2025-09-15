@@ -396,64 +396,51 @@ const WorkflowList: React.FC = () => {
     };
 
     // 在表单值变化时更新 target_agent_mode 并为营销消息组提供默认 source
-    const handleFormValuesChange = (changedValues: any, allValues: FormValues) => {
-        if (changedValues.config) {
-            const config = allValues.config;
-            config.forEach((step, index) => {
-                if (step.type === WorkflowType.MARKETING_MESSAGE) {
-                    const groups = step.groups || [];
-                    if (!step.source) {
-                        const newConfig = [...config];
-                        newConfig[index] = { ...newConfig[index], source: 'company' };
-                        form.setFieldsValue({ config: newConfig });
-                    }
-                    if (groups.length === 0) {
-                        const newConfig = [...config];
-                        newConfig[index] = {
-                            ...newConfig[index],
-                            groups: [{ intervene_message: '', reach_prob: 1, source: 'company' }]
-                        };
-                        form.setFieldsValue({ config: newConfig });
-                    } else {
-                        groups.forEach((group: any, gIdx: number) => {
-                            const key = `${index}-${gIdx}`;
-                            if (!groupTargetAgentModes[key]) {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                            }
-                            if (!group.source) {
-                                const newConfig = [...config];
-                                const newGroups = [...groups];
-                                newGroups[gIdx] = { ...newGroups[gIdx], source: 'company' };
-                                newConfig[index] = { ...newConfig[index], groups: newGroups };
-                                form.setFieldsValue({ config: newConfig });
-                            }
-                        });
-                    }
-                    return;
+    const handleFormValuesChange = (_changedValues: any, allValues: FormValues) => {
+        if (!Array.isArray(allValues.config)) return;
+        allValues.config.forEach((step, index) => {
+            // seed marketing-message groups and source defaults
+            if (step.type === WorkflowType.MARKETING_MESSAGE) {
+                const groups = step.groups || [];
+                if (groups.length === 0) {
+                    form.setFieldValue([
+                        'config',
+                        index,
+                        'groups'
+                    ], [{ intervene_message: '', reach_prob: 1, repeat: 1, source: 'company' }]);
+                } else {
+                    groups.forEach((group: any, gIdx: number) => {
+                        const key = `${index}-${gIdx}`;
+                        if (!groupTargetAgentModes[key]) {
+                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+                        }
+                        if (!group.source) {
+                            form.setFieldValue(['config', index, 'groups', gIdx, 'source'], 'company');
+                        }
+                    });
                 }
+            }
 
-                if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
-                    if (!targetAgentModes[index]) {
-                        // 根据 target_agent 的值类型设置默认 mode
-                        const targetAgent = step.target_agent;
-                        if (Array.isArray(targetAgent)) {
-                            handleTargetAgentModeChange(index, 'list');
-                        } else if (typeof targetAgent === 'string') {
+            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
+                if (!targetAgentModes[index]) {
+                    const targetAgent = step.target_agent;
+                    if (Array.isArray(targetAgent)) {
+                        handleTargetAgentModeChange(index, 'list');
+                    } else if (typeof targetAgent === 'string') {
+                        handleTargetAgentModeChange(index, 'expression');
+                    } else if (targetAgent && typeof targetAgent === 'object') {
+                        const agentFilter = targetAgent as any;
+                        if (agentFilter.filter_str) {
                             handleTargetAgentModeChange(index, 'expression');
-                        } else if (targetAgent && typeof targetAgent === 'object') {
-                            const agentFilter = targetAgent as any;
-                            if (agentFilter.filter_str) {
-                                handleTargetAgentModeChange(index, 'expression');
-                            } else if (agentFilter.agent_class) {
-                                handleTargetAgentModeChange(index, 'list');
-                            }
-                        } else {
+                        } else if (agentFilter.agent_class) {
                             handleTargetAgentModeChange(index, 'list');
                         }
+                    } else {
+                        handleTargetAgentModeChange(index, 'list');
                     }
                 }
-            });
-        }
+            }
+        });
     };
 
     // Table columns
