@@ -982,18 +982,18 @@ const WorkflowList: React.FC = () => {
                                                                     <Form.List name={[name, 'groups']} initialValue={[createMarketingGroup()]}> 
                                                                         {(fields, { add, remove }) => (
                                                                             <>
-                                                                                {fields.map((field, gIdx) => {
+                                                                                {fields.map(({ key: groupKey, name: groupName, ...groupField }, gIdx) => {
                                                                                     const listKey = `${name}-${gIdx}`;
                                                                                     const targetMode = groupTargetAgentModes[listKey] === 'list' ? 'list' : 'expression';
                                                                                     return (
-                                                                                        <React.Fragment key={field.key}>
+                                                                                        <React.Fragment key={groupKey}>
                                                                                             <Row gutter={16}>
                                                                                                 {targetMode === 'list' ? (
                                                                                                     <Col span={12}>
                                                                                                         <Form.Item
-                                                                                                            {...field}
-                                                                                                            name={[field.name, 'target_agent']}
-                                                                                                            fieldKey={[field.fieldKey, 'target_agent']}
+                                                                                                           {...groupField}
+                                                                                                           name={[groupName, 'target_agent']}
+                                                                                                           fieldKey={[groupField.fieldKey, 'target_agent']}
                                                                                                         label={t('workflow.targetAgentIds')}
                                                                                                         rules={[{ required: true, message: t('workflow.pleaseEnterTargetAgent') }]}
                                                                                                         tooltip={t('workflow.targetAgentIdsTooltip')}
@@ -1011,9 +1011,8 @@ const WorkflowList: React.FC = () => {
                                                                                             ) : (
                                                                                                 <Col span={12}>
                                                                                                     <Form.Item
-                                                                                                        {...field}
-                                                                                                        name={[field.name, 'target_agent']}
-                                                                                                        fieldKey={[field.fieldKey, 'target_agent']}
+                                                                                                        {...groupField}
+                                                                                                        name={[groupName, 'target_agent']}
                                                                                                         label={t('workflow.targetAgentExpression')}
                                                                                                         tooltip={t('workflow.targetAgentExpressionTooltip')}
                                                                                                         style={{ marginBottom: 8 }}
@@ -1024,9 +1023,8 @@ const WorkflowList: React.FC = () => {
                                                                                             )}
                                                                                             <Col span={12}>
                                                                                                 <Form.Item
-                                                                                                    {...field}
-                                                                                                    name={[field.name, 'intervene_message']}
-                                                                                                    fieldKey={[field.fieldKey, 'intervene_message']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'intervene_message']}
                                                                                                     label={t('workflow.marketing_message')}
                                                                                                     rules={[{ required: true, message: t('workflow.pleaseEnterMarketingMessage') }]}
                                                                                                     tooltip={t('workflow.marketing_messageTooltip')}
@@ -1039,9 +1037,8 @@ const WorkflowList: React.FC = () => {
                                                                                         <Row gutter={16}>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...field}
-                                                                                                    name={[field.name, 'reach_prob']}
-                                                                                                    fieldKey={[field.fieldKey, 'reach_prob']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'reach_prob']}
                                                                                                     label={t('workflow.reachProbability')}
                                                                                                     rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
                                                                                                     tooltip={t('workflow.reachProbability')}
@@ -1052,9 +1049,8 @@ const WorkflowList: React.FC = () => {
                                                                                             </Col>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...field}
-                                                                                                    name={[field.name, 'repeat']}
-                                                                                                    fieldKey={[field.fieldKey, 'repeat']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'repeat']}
                                                                                                     label={t('workflow.repeat')}
                                                                                                     tooltip={t('workflow.repeat')}
                                                                                                     initialValue={1}
@@ -1065,12 +1061,12 @@ const WorkflowList: React.FC = () => {
                                                                                             </Col>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...field}
-                                                                                                    name={[field.name, 'source']}
-                                                                                                    fieldKey={[field.fieldKey, 'source']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'repeat']}
                                                                                                     label={t('workflow.messageSource')}
                                                                                                     tooltip={t('workflow.messageSourceTooltip')}
                                                                                                     rules={[{ required: true, message: t('workflow.pleaseSelectMessageSource') }]}
+                                                                                                    initialValue="company"
                                                                                                     style={{ marginBottom: 8 }}
                                                                                                 >
                                                                                                     <Select
@@ -1083,7 +1079,7 @@ const WorkflowList: React.FC = () => {
                                                                                         </Row>
                                                                                         <Row>
                                                                                             <Col span={24}>
-                                                                                                <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(field.name)} />
+                                                                                                <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(groupName)} />
                                                                                             </Col>
                                                                                         </Row>
                                                                                     </React.Fragment>
