@@ -1062,7 +1062,7 @@ const WorkflowList: React.FC = () => {
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
                                                                                                     {...groupField}
-                                                                                                    name={[groupName, 'repeat']}
+                                                                                                    name={[groupName, 'source']}
                                                                                                     label={t('workflow.messageSource')}
                                                                                                     tooltip={t('workflow.messageSourceTooltip')}
                                                                                                     rules={[{ required: true, message: t('workflow.pleaseSelectMessageSource') }]}
