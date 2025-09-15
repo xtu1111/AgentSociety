@@ -881,13 +881,14 @@ const WorkflowList: React.FC = () => {
 
                                                        if (stepType === WorkflowType.MARKETING_MESSAGE) {
                                                            return (
-                                                               <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, source: 'company' }]}> 
-                                                                   {(fields, { add, remove }) => (
-                                                                       <>
-                                                                           {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
-                                                                               <React.Fragment key={key}>
-                                                                                   <Row gutter={16}>
-                                                                                       {groupTargetAgentModes[`${name}-${gIdx}`] === 'list' ? (
+                                                               <Col span={24}>
+                                                                   <Form.List name={[name, 'groups']} initialValue={[{ intervene_message: '', reach_prob: 1, source: 'company' }]}> 
+                                                                       {(fields, { add, remove }) => (
+                                                                           <>
+                                                                            {fields.map(({ key, name: groupName, ...restField }, gIdx) => (
+                                                                                <React.Fragment key={key}>
+                                                                                    <Row gutter={16}>
+                                                                                        {groupTargetAgentModes[`${name}-${gIdx}`] === 'list' ? (
                                                                                            <Col span={12}>
                                                                                                <Form.Item
                                                                                                    {...restField}
