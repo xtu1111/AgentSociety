@@ -328,10 +328,18 @@ const WorkflowList: React.FC = () => {
                         if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
                             step.groups = step.groups.map((g: any, gIdx: number) => {
                                 const mode = groupTargetAgentModes[`${idx}-${gIdx}`];
-                                if (mode === 'expression' && typeof g.target_agent === 'string' && g.target_agent.trim()) {
-                                    return { ...g, target_agent: { filter_str: g.target_agent } };
+                                const withSource = { source: g.source ?? 'company', ...g };
+                                if (
+                                    mode === 'expression' &&
+                                    typeof withSource.target_agent === 'string' &&
+                                    withSource.target_agent.trim()
+                                ) {
+                                    return {
+                                        ...withSource,
+                                        target_agent: { filter_str: withSource.target_agent },
+                                    };
                                 }
-                                return g;
+                                return withSource;
                             });
                             delete step.target_agent;
                             delete step.intervene_message;
@@ -394,6 +402,14 @@ const WorkflowList: React.FC = () => {
             [key]: mode
         }));
     };
+
+    // seed defaults for marketing messages whenever modal becomes visible
+    useEffect(() => {
+        if (isModalVisible) {
+            handleFormValuesChange({}, form.getFieldsValue());
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isModalVisible]);
 
     // 在表单值变化时更新 target_agent_mode 并为营销消息组提供默认 source
     const handleFormValuesChange = (_changedValues: any, allValues: FormValues) => {
