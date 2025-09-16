@@ -14,7 +14,7 @@ const MARKETING_MESSAGE_GROUP_DEFAULT = {
     target_agent_mode: 'expression' as 'list' | 'expression',
     target_agent: '',
     intervene_message: '',
-    reach_prob: 1,
+    reach_prob: 0.1,
     repeat: 1,
     source: 'company',
 };
@@ -1327,7 +1327,12 @@ const WorkflowList: React.FC = () => {
                                                                                                     tooltip={t('workflow.reachProbability')}
                                                                                                     style={{ marginBottom: 8 }}
                                                                                                 >
-                                                                                                    <Input type="number" min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                                                                                                    <InputNumber
+                                                                                                        min={0}
+                                                                                                        max={1}
+                                                                                                        step={0.01}
+                                                                                                        style={{ width: '100%' }}
+                                                                                                    />
                                                                                                 </Form.Item>
                                                                                             </Col>
                                                                                             <Col span={8}>
