@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, List, Optional, Union, Dict
+from typing import Any, List, Optional, Union, Dict, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
@@ -87,8 +87,11 @@ class AgentFilterConfig(BaseModel):
 class MarketingGroupConfig(BaseModel):
     """Configuration for a marketing message target group."""
 
-    target_agent: Optional[Union[list[int], AgentFilterConfig]] = None
+    target_agent: Optional[Union[list[int], str, AgentFilterConfig]] = None
     """Agents targeted by this marketing message group"""
+
+    target_agent_mode: Literal["list", "expression"] = "expression"
+    """Specifies whether ``target_agent`` is a list of IDs or an expression string"""
 
     intervene_message: str
     """Marketing message content for this group"""
@@ -167,6 +170,8 @@ class WorkflowStepConfig(BaseModel):
     """Time of day to send the marketing message (HH:MM)"""
     groups: Optional[List[MarketingGroupConfig]] = None
     """Optional list of marketing message groups"""
+    target_agent_mode: Optional[Literal["list", "expression"]] = None
+    """Selection mode for ``target_agent`` when groups are not used"""
     tags: Optional[List[str]] = None
     """Optional list of tags for the marketing message"""
 

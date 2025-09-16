@@ -9,6 +9,10 @@ import { useTranslation } from 'react-i18next';
 import { Survey } from '../../components/type';
 
 const MARKETING_MESSAGE_GROUP_DEFAULT = {
+    description: '',
+    send_time: '',
+    target_agent_mode: 'expression' as 'list' | 'expression',
+    target_agent: '',
     intervene_message: '',
     reach_prob: 1,
     repeat: 1,
@@ -30,10 +34,117 @@ const ensureMarketingGroupDefaults = (group: any) => {
     if (!group || typeof group !== 'object' || Array.isArray(group)) {
         return createMarketingGroup();
     }
-    if (!group.source) {
-        return { ...group, source: MARKETING_MESSAGE_GROUP_DEFAULT.source };
+
+    const normalized: any = { ...group };
+    let updated = false;
+
+    if (typeof normalized.description !== 'string') {
+        normalized.description = MARKETING_MESSAGE_GROUP_DEFAULT.description;
+        updated = true;
     }
-    return group;
+
+    if (typeof normalized.send_time !== 'string') {
+        normalized.send_time = MARKETING_MESSAGE_GROUP_DEFAULT.send_time;
+        updated = true;
+    }
+
+    let targetMode: 'list' | 'expression';
+    if (normalized.target_agent_mode === 'list' || normalized.target_agent_mode === 'expression') {
+        targetMode = normalized.target_agent_mode;
+    } else {
+        const targetAgent = normalized.target_agent;
+        if (Array.isArray(targetAgent)) {
+            targetMode = 'list';
+        } else if (
+            targetAgent &&
+            typeof targetAgent === 'object' &&
+            !Array.isArray(targetAgent) &&
+            (targetAgent as any).filter_str
+        ) {
+            targetMode = 'expression';
+            normalized.target_agent = (targetAgent as any).filter_str;
+            updated = true;
+        } else if (typeof targetAgent === 'string') {
+            targetMode = 'expression';
+        } else {
+            targetMode = MARKETING_MESSAGE_GROUP_DEFAULT.target_agent_mode;
+            normalized.target_agent = MARKETING_MESSAGE_GROUP_DEFAULT.target_agent;
+            updated = true;
+        }
+    }
+
+    if (targetMode === 'expression') {
+        if (
+            normalized.target_agent &&
+            typeof normalized.target_agent === 'object' &&
+            !Array.isArray(normalized.target_agent)
+        ) {
+            const agentFilter = normalized.target_agent as any;
+            if (agentFilter.filter_str) {
+                normalized.target_agent = agentFilter.filter_str;
+            } else {
+                normalized.target_agent = MARKETING_MESSAGE_GROUP_DEFAULT.target_agent;
+            }
+            updated = true;
+        } else if (Array.isArray(normalized.target_agent)) {
+            normalized.target_agent = normalized.target_agent.join(',');
+            updated = true;
+        } else if (typeof normalized.target_agent !== 'string') {
+            normalized.target_agent = MARKETING_MESSAGE_GROUP_DEFAULT.target_agent;
+            updated = true;
+        }
+    } else {
+        if (typeof normalized.target_agent === 'string') {
+            const parsed = normalized.target_agent
+                .split(',')
+                .map((v: string) => parseInt(v.trim(), 10))
+                .filter((v: number) => !Number.isNaN(v));
+            normalized.target_agent = parsed;
+            updated = true;
+        } else if (
+            normalized.target_agent &&
+            typeof normalized.target_agent === 'object' &&
+            !Array.isArray(normalized.target_agent)
+        ) {
+            const agentFilter = normalized.target_agent as any;
+            if (Array.isArray(agentFilter.agent_class)) {
+                normalized.target_agent = agentFilter.agent_class;
+            } else {
+                normalized.target_agent = [];
+            }
+            updated = true;
+        } else if (!Array.isArray(normalized.target_agent)) {
+            normalized.target_agent = [];
+            updated = true;
+        }
+    }
+
+    if (normalized.target_agent_mode !== targetMode) {
+        normalized.target_agent_mode = targetMode;
+        updated = true;
+    }
+
+    if (typeof normalized.intervene_message !== 'string') {
+        normalized.intervene_message = '';
+        updated = true;
+    }
+
+    if (typeof normalized.reach_prob !== 'number') {
+        normalized.reach_prob = MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob;
+        updated = true;
+    }
+
+    if (typeof normalized.repeat !== 'number' || normalized.repeat <= 0) {
+        normalized.repeat = MARKETING_MESSAGE_GROUP_DEFAULT.repeat;
+        updated = true;
+    }
+
+    if (!normalized.source) {
+        normalized.source = MARKETING_MESSAGE_GROUP_DEFAULT.source;
+        updated = true;
+    }
+
+    return updated ? normalized : group;
 };
 interface FormValues {
     name: string;
@@ -52,7 +163,6 @@ const WorkflowList: React.FC = () => {
     const [surveyList, setSurveyList] = useState<Survey[]>([]);
     const [form] = Form.useForm<FormValues>();
     const [targetAgentModes, setTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
-    const [groupTargetAgentModes, setGroupTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
     const [agentClasses, setAgentClasses] = useState<{ [agentType: string]: { value: string; label: string }[] }>({});
     const [loadingAgentClasses, setLoadingAgentClasses] = useState<{ [agentType: string]: boolean }>({});
     const messageSourceOptions = useMemo(
@@ -308,41 +418,63 @@ const WorkflowList: React.FC = () => {
 
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
-            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
-                if (step.type === WorkflowType.MARKETING_MESSAGE) {
-                    step.description = step.description || '';
-                    step.send_time = step.send_time || '';
-                }
-                if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
-                    step.groups = step.groups.map((g: any, gIdx: number) => {
-                        let normalized = ensureMarketingGroupDefaults(g);
-                        if (normalized.target_agent && typeof normalized.target_agent === 'object' && !Array.isArray(normalized.target_agent)) {
-                            const agentFilter = normalized.target_agent as any;
-                            if (agentFilter.filter_str) {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                normalized = { ...normalized, target_agent: agentFilter.filter_str };
-                            }
-                        } else if (Array.isArray(normalized.target_agent)) {
-                            handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                        } else if (typeof normalized.target_agent === 'string') {
-                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+            if (step.type === WorkflowType.MARKETING_MESSAGE) {
+                const baseGroups = Array.isArray(step.groups) && step.groups.length > 0
+                    ? step.groups
+                    : [
+                          {
+                              description: step.description ?? MARKETING_MESSAGE_GROUP_DEFAULT.description,
+                              send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
+                              target_agent: step.target_agent,
+                              intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
+                              reach_prob:
+                                  typeof step.reach_prob === 'number'
+                                      ? step.reach_prob
+                                      : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                              repeat:
+                                  typeof step.repeat === 'number' && step.repeat > 0
+                                      ? step.repeat
+                                      : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
+                              source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                          },
+                      ];
+                const normalizedGroups = baseGroups.map((group: any) => ensureMarketingGroupDefaults(group));
+                const nextStep: any = {
+                    ...step,
+                    groups: normalizedGroups,
+                };
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                    (field) => {
+                        if (field in nextStep) {
+                            delete nextStep[field];
                         }
-                        return normalized;
-                    });
-                    return step;
+                    }
+                );
+                if (nextStep.agent_class) {
+                    delete nextStep.agent_class;
                 }
+                return nextStep;
+            }
+
+            if ([
+                WorkflowType.INTERVIEW,
+                WorkflowType.SURVEY,
+                WorkflowType.UPDATE_STATE_INTERVENE,
+                WorkflowType.MESSAGE_INTERVENE,
+                WorkflowType.SAVE_CONTEXT,
+            ].includes(step.type)) {
                 if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
                     const agentFilter = step.target_agent as any;
                     if (agentFilter.filter_str) {
                         handleTargetAgentModeChange(index, 'expression');
                         const updated: any = { ...step, target_agent: agentFilter.filter_str };
-                        if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                        if (agentFilter.agent_class) {
                             fetchAgentClasses();
                             updated.agent_class = agentFilter.agent_class;
                         }
                         return updated;
                     }
-                    if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                    if (agentFilter.agent_class) {
                         handleTargetAgentModeChange(index, 'expression');
                         fetchAgentClasses();
                         return { ...step, agent_class: agentFilter.agent_class };
@@ -370,41 +502,63 @@ const WorkflowList: React.FC = () => {
 
         // 处理配置数据，将AgentFilterConfig转换为表单格式
         const processedConfig = workflow.config?.map((step: any, index: number) => {
-            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(step.type)) {
-                if (step.type === WorkflowType.MARKETING_MESSAGE) {
-                    step.description = step.description || '';
-                    step.send_time = step.send_time || '';
-                }
-                if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
-                    step.groups = step.groups.map((g: any, gIdx: number) => {
-                        let normalized = ensureMarketingGroupDefaults(g);
-                        if (normalized.target_agent && typeof normalized.target_agent === 'object' && !Array.isArray(normalized.target_agent)) {
-                            const agentFilter = normalized.target_agent as any;
-                            if (agentFilter.filter_str) {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                normalized = { ...normalized, target_agent: agentFilter.filter_str };
-                            }
-                        } else if (Array.isArray(normalized.target_agent)) {
-                            handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                        } else if (typeof normalized.target_agent === 'string') {
-                            handleGroupTargetAgentModeChange(index, gIdx, 'expression');
+            if (step.type === WorkflowType.MARKETING_MESSAGE) {
+                const baseGroups = Array.isArray(step.groups) && step.groups.length > 0
+                    ? step.groups
+                    : [
+                          {
+                              description: step.description ?? MARKETING_MESSAGE_GROUP_DEFAULT.description,
+                              send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
+                              target_agent: step.target_agent,
+                              intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
+                              reach_prob:
+                                  typeof step.reach_prob === 'number'
+                                      ? step.reach_prob
+                                      : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                              repeat:
+                                  typeof step.repeat === 'number' && step.repeat > 0
+                                      ? step.repeat
+                                      : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
+                              source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                          },
+                      ];
+                const normalizedGroups = baseGroups.map((group: any) => ensureMarketingGroupDefaults(group));
+                const nextStep: any = {
+                    ...step,
+                    groups: normalizedGroups,
+                };
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                    (field) => {
+                        if (field in nextStep) {
+                            delete nextStep[field];
                         }
-                        return normalized;
-                    });
-                    return step;
+                    }
+                );
+                if (nextStep.agent_class) {
+                    delete nextStep.agent_class;
                 }
+                return nextStep;
+            }
+
+            if ([
+                WorkflowType.INTERVIEW,
+                WorkflowType.SURVEY,
+                WorkflowType.UPDATE_STATE_INTERVENE,
+                WorkflowType.MESSAGE_INTERVENE,
+                WorkflowType.SAVE_CONTEXT,
+            ].includes(step.type)) {
                 if (step.target_agent && typeof step.target_agent === 'object' && !Array.isArray(step.target_agent)) {
                     const agentFilter = step.target_agent as any;
                     if (agentFilter.filter_str) {
                         handleTargetAgentModeChange(index, 'expression');
                         const updated: any = { ...step, target_agent: agentFilter.filter_str };
-                        if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                        if (agentFilter.agent_class) {
                             fetchAgentClasses();
                             updated.agent_class = agentFilter.agent_class;
                         }
                         return updated;
                     }
-                    if (agentFilter.agent_class && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                    if (agentFilter.agent_class) {
                         handleTargetAgentModeChange(index, 'expression');
                         fetchAgentClasses();
                         return { ...step, agent_class: agentFilter.agent_class };
@@ -465,48 +619,88 @@ const WorkflowList: React.FC = () => {
             // 处理 target_agent 字段
             if (formValues.config) {
                 formValues.config = formValues.config.map((step: any, idx: number) => {
+                    if (step.type === WorkflowType.MARKETING_MESSAGE) {
+                        if (Array.isArray(step.groups) && step.groups.length > 0) {
+                            step.groups = step.groups.map((group: any) => {
+                                const normalized = ensureMarketingGroupDefaults(group);
+                                const mode = normalized.target_agent_mode === 'list' ? 'list' : 'expression';
+                                if (mode === 'expression') {
+                                    if (typeof normalized.target_agent === 'string') {
+                                        normalized.target_agent = normalized.target_agent.trim();
+                                    } else if (
+                                        normalized.target_agent &&
+                                        typeof normalized.target_agent === 'object' &&
+                                        !Array.isArray(normalized.target_agent)
+                                    ) {
+                                        const agentFilter = normalized.target_agent as any;
+                                        normalized.target_agent = agentFilter.filter_str
+                                            ? String(agentFilter.filter_str)
+                                            : MARKETING_MESSAGE_GROUP_DEFAULT.target_agent;
+                                    } else {
+                                        normalized.target_agent = MARKETING_MESSAGE_GROUP_DEFAULT.target_agent;
+                                    }
+                                } else {
+                                    if (typeof normalized.target_agent === 'string') {
+                                        normalized.target_agent = normalized.target_agent
+                                            .split(',')
+                                            .map((v: string) => parseInt(v.trim(), 10))
+                                            .filter((v: number) => !Number.isNaN(v));
+                                    }
+                                    if (!Array.isArray(normalized.target_agent)) {
+                                        normalized.target_agent = [];
+                                    }
+                                }
+                                return normalized;
+                            });
+                        } else {
+                            const fallbackGroup = ensureMarketingGroupDefaults({
+                                description: step.description ?? MARKETING_MESSAGE_GROUP_DEFAULT.description,
+                                send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
+                                target_agent: step.target_agent,
+                                intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
+                                reach_prob:
+                                    typeof step.reach_prob === 'number'
+                                        ? step.reach_prob
+                                        : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                                repeat:
+                                    typeof step.repeat === 'number' && step.repeat > 0
+                                        ? step.repeat
+                                        : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
+                                source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                            });
+                            step.groups = [fallbackGroup];
+                        }
+
+                        delete step.target_agent;
+                        delete step.intervene_message;
+                        delete step.reach_prob;
+                        delete step.repeat;
+                        delete step.source;
+                        delete step.send_time;
+                        delete step.description;
+                        if (step.agent_class) {
+                            delete step.agent_class;
+                        }
+                        return step;
+                    }
+
                     if ([
                         WorkflowType.INTERVIEW,
                         WorkflowType.SURVEY,
                         WorkflowType.UPDATE_STATE_INTERVENE,
                         WorkflowType.MESSAGE_INTERVENE,
                         WorkflowType.SAVE_CONTEXT,
-                        WorkflowType.MARKETING_MESSAGE
                     ].includes(step.type)) {
                         if (targetAgentModes[idx] === 'expression' && typeof step.target_agent === 'string' && step.target_agent.trim()) {
                             step.target_agent = { filter_str: step.target_agent };
                         } else if (targetAgentModes[idx] === 'list') {
-                            if (step.agent_class && step.agent_class.length > 0 && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                            if (step.agent_class && step.agent_class.length > 0) {
                                 step.target_agent = { agent_class: step.agent_class };
                                 delete step.agent_class;
                             }
-                        } else if (targetAgentModes[idx] === 'expression' && step.agent_class && step.agent_class.length > 0 && step.type !== WorkflowType.MARKETING_MESSAGE) {
+                        } else if (targetAgentModes[idx] === 'expression' && step.agent_class && step.agent_class.length > 0) {
                             step.target_agent = { filter_str: step.target_agent, agent_class: step.agent_class };
                             delete step.agent_class;
-                        }
-                        if (step.type === WorkflowType.MARKETING_MESSAGE && step.agent_class) {
-                            delete step.agent_class;
-                        }
-                        if (step.type === WorkflowType.MARKETING_MESSAGE && step.groups) {
-                            step.groups = step.groups.map((g: any, gIdx: number) => {
-                                const mode = groupTargetAgentModes[`${idx}-${gIdx}`];
-                                const normalized = ensureMarketingGroupDefaults(g);
-                                if (
-                                    mode === 'expression' &&
-                                    typeof normalized.target_agent === 'string' &&
-                                    normalized.target_agent.trim()
-                                ) {
-                                    return {
-                                        ...normalized,
-                                        target_agent: { filter_str: normalized.target_agent },
-                                    };
-                                }
-                                return normalized;
-                            });
-                            delete step.target_agent;
-                            delete step.intervene_message;
-                            delete step.reach_prob;
-                            delete step.repeat;
                         }
                     }
                     return step;
@@ -557,14 +751,6 @@ const WorkflowList: React.FC = () => {
         }));
     };
 
-    const handleGroupTargetAgentModeChange = (stepIndex: number, groupIndex: number, mode: 'list' | 'expression') => {
-        const key = `${stepIndex}-${groupIndex}`;
-        setGroupTargetAgentModes(prev => ({
-            ...prev,
-            [key]: mode
-        }));
-    };
-
     // seed defaults for marketing messages whenever modal becomes visible
     useEffect(() => {
         if (isModalVisible) {
@@ -577,12 +763,10 @@ const WorkflowList: React.FC = () => {
     const handleFormValuesChange = (_changedValues: any, allValues: FormValues) => {
         if (!Array.isArray(allValues.config)) return;
         const newConfig = [...allValues.config];
-        const marketingGroupUpdates: Array<{ index: number; groups: any[] }> = [];
         let updated = false;
         newConfig.forEach((step, index) => {
             let currentStep = step;
 
-            // normalize marketing message groups, ensure defaults, and seed target agent modes for each group
             if (step.type === WorkflowType.MARKETING_MESSAGE) {
                 let nextStep = step;
                 let stepChanged = false;
@@ -592,57 +776,32 @@ const WorkflowList: React.FC = () => {
                     }
                 };
 
-                if (typeof step.description === 'undefined') {
+                const existingGroups = Array.isArray(step.groups) ? step.groups : [];
+                const groupsSource = existingGroups.length > 0 ? existingGroups : [createMarketingGroup()];
+                let groupsChanged = groupsSource.length !== existingGroups.length;
+                const normalizedGroups = groupsSource.map((group: any) => {
+                    const normalizedGroup = ensureMarketingGroupDefaults(group);
+                    if (normalizedGroup !== group) {
+                        groupsChanged = true;
+                    }
+                    return normalizedGroup;
+                });
+
+                if (groupsChanged) {
                     ensureNextStep();
-                    nextStep.description = '';
-                    stepChanged = true;
-                }
-                if (typeof step.send_time === 'undefined') {
-                    ensureNextStep();
-                    nextStep.send_time = '';
+                    nextStep.groups = normalizedGroups;
                     stepChanged = true;
                 }
 
-                const groups = Array.isArray(step.groups) ? step.groups : [];
-                if (groups.length > 0) {
-                    let groupsChanged = false;
-                    const normalizedGroups = groups.map((group: any, gIdx: number) => {
-                        const key = `${index}-${gIdx}`;
-                        if (!groupTargetAgentModes[key]) {
-                            const targetAgent = group?.target_agent;
-                            if (Array.isArray(targetAgent)) {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                            } else if (
-                                targetAgent &&
-                                typeof targetAgent === 'object' &&
-                                !Array.isArray(targetAgent)
-                            ) {
-                                if ((targetAgent as any).agent_class) {
-                                    handleGroupTargetAgentModeChange(index, gIdx, 'list');
-                                } else if ((targetAgent as any).filter_str) {
-                                    handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                } else {
-                                    handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                                }
-                            } else if (typeof targetAgent === 'string') {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                            } else {
-                                handleGroupTargetAgentModeChange(index, gIdx, 'expression');
-                            }
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                    (field) => {
+                        if (field in nextStep) {
+                            ensureNextStep();
+                            delete (nextStep as any)[field];
+                            stepChanged = true;
                         }
-                        const normalizedGroup = ensureMarketingGroupDefaults(group);
-                        if (normalizedGroup !== group) {
-                            groupsChanged = true;
-                        }
-                        return normalizedGroup;
-                    });
-                    if (groupsChanged) {
-                        ensureNextStep();
-                        nextStep.groups = normalizedGroups;
-                        marketingGroupUpdates.push({ index, groups: normalizedGroups });
-                        stepChanged = true;
                     }
-                }
+                );
 
                 if (stepChanged) {
                     newConfig[index] = nextStep;
@@ -651,7 +810,7 @@ const WorkflowList: React.FC = () => {
                 }
             }
 
-            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT, WorkflowType.MARKETING_MESSAGE].includes(currentStep.type)) {
+            if ([WorkflowType.INTERVIEW, WorkflowType.SURVEY, WorkflowType.UPDATE_STATE_INTERVENE, WorkflowType.MESSAGE_INTERVENE, WorkflowType.SAVE_CONTEXT].includes(currentStep.type)) {
                 if (!targetAgentModes[index]) {
                     const targetAgent = currentStep.target_agent;
                     if (Array.isArray(targetAgent)) {
@@ -673,9 +832,6 @@ const WorkflowList: React.FC = () => {
         });
         if (updated) {
             form.setFieldsValue({ config: newConfig });
-            marketingGroupUpdates.forEach(({ index, groups }) => {
-                form.setFieldValue(['config', index, 'groups'], groups);
-            });
         }
     };
 
@@ -849,53 +1005,45 @@ const WorkflowList: React.FC = () => {
                                                                 const steps = form.getFieldValue('config') || [];
                                                                 const step = steps[name] || {};
                                                                 const newSteps = [...steps];
-                                                                let normalizedGroups: any[] | undefined;
 
                                                                 if (value === WorkflowType.MARKETING_MESSAGE) {
                                                                     const existingGroups = Array.isArray(step.groups)
-                                                                        ? step.groups.map((group: any) => ensureMarketingGroupDefaults(group))
+                                                                        ? step.groups
                                                                         : [];
-                                                                    normalizedGroups = existingGroups;
+                                                                    const groups = (existingGroups.length > 0
+                                                                        ? existingGroups
+                                                                        : [createMarketingGroup()]
+                                                                    ).map((group: any) => ensureMarketingGroupDefaults(group));
+
+                                                                    const cleanedStep: any = { ...step };
+                                                                    delete cleanedStep.description;
+                                                                    delete cleanedStep.send_time;
+                                                                    delete cleanedStep.target_agent;
+                                                                    delete cleanedStep.intervene_message;
+                                                                    delete cleanedStep.reach_prob;
+                                                                    delete cleanedStep.repeat;
+                                                                    delete cleanedStep.source;
 
                                                                     newSteps[name] = {
-                                                                        ...step,
+                                                                        ...cleanedStep,
                                                                         type: value,
-                                                                        groups: normalizedGroups,
+                                                                        groups,
                                                                     };
+
+                                                                    setTargetAgentModes((prev) => {
+                                                                        if (!(name in prev)) {
+                                                                            return prev;
+                                                                        }
+                                                                        const nextModes = { ...prev };
+                                                                        delete nextModes[name];
+                                                                        return nextModes;
+                                                                    });
                                                                 } else {
-                                                                    const { groups, intervene_message, reach_prob, repeat, ...rest } = step as any;
+                                                                    const { groups: _unusedGroups, ...rest } = step as any;
                                                                     newSteps[name] = { ...rest, type: value };
                                                                 }
 
                                                                 form.setFieldsValue({ config: newSteps });
-
-                                                                if (value === WorkflowType.MARKETING_MESSAGE) {
-                                                                    form.setFieldValue(
-                                                                        ['config', name, 'groups'],
-                                                                        normalizedGroups,
-                                                                    );
-                                                                    normalizedGroups?.forEach((_, groupIdx) => {
-                                                                        const key = `${name}-${groupIdx}`;
-                                                                        if (!groupTargetAgentModes[key]) {
-                                                                            handleGroupTargetAgentModeChange(
-                                                                                name,
-                                                                                groupIdx,
-                                                                                'expression',
-                                                                            );
-                                                                        }
-                                                                    });
-                                                                } else {
-                                                                    form.setFieldValue(['config', name, 'groups'], undefined);
-                                                                    setGroupTargetAgentModes((prev) => {
-                                                                        const next = { ...prev };
-                                                                        Object.keys(next).forEach((key) => {
-                                                                            if (key.startsWith(`${name}-`)) {
-                                                                                delete next[key];
-                                                                            }
-                                                                        });
-                                                                        return next;
-                                                                    });
-                                                                }
                                                             }}
                                                             options={stepTypeOptions}
                                                         />
@@ -1023,273 +1171,145 @@ const WorkflowList: React.FC = () => {
 
                                     
                                                         if (stepType === WorkflowType.MARKETING_MESSAGE) {
-                                                            const topLevelTargetMode = targetAgentModes[name] ?? 'expression';
                                                             return (
                                                                 <Col span={24}>
-                                                                    <Row gutter={16}>
-                                                                        <Col span={8}>
-                                                                            <Form.Item
-                                                                                {...restField}
-                                                                                name={[name, 'description']}
-                                                                                label={t('workflow.description')}
-                                                                                tooltip={t('workflow.descriptionTooltip')}
-                                                                                style={{ marginBottom: 8 }}
-                                                                            >
-                                                                                <Input placeholder={t('workflow.enterStepDescription')} />
-                                                                            </Form.Item>
-                                                                        </Col>
-                                                                        <Col span={8}>
-                                                                            <Form.Item
-                                                                                {...restField}
-                                                                                name={[name, 'send_time']}
-                                                                                label={t('workflow.sendTime')}
-                                                                                tooltip={t('workflow.sendTimeTooltip')}
-                                                                                style={{ marginBottom: 8 }}
-                                                                            >
-                                                                                <Input placeholder={t('workflow.enterSendTime')} />
-                                                                            </Form.Item>
-                                                                        </Col>
-                                                                        <Col span={8}>
-                                                                            <Form.Item
-                                                                                label={t('workflow.targetAgentMode')}
-                                                                                tooltip={t('workflow.targetAgentModeTooltip')}
-                                                                                style={{ marginBottom: 8 }}
-                                                                            >
-                                                                                <Select
-                                                                                    style={{ width: '100%' }}
-                                                                                    value={topLevelTargetMode}
-                                                                                    onChange={(value) => handleTargetAgentModeChange(name, value)}
-                                                                                    options={[
-                                                                                        {
-                                                                                            value: 'list',
-                                                                                            label: t('workflow.targetAgentModeList'),
-                                                                                        },
-                                                                                        {
-                                                                                            value: 'expression',
-                                                                                            label: t('workflow.targetAgentModeExpression'),
-                                                                                        },
-                                                                                    ]}
-                                                                                />
-                                                                            </Form.Item>
-                                                                        </Col>
-                                                                    </Row>
                                                                     <Form.List name={[name, 'groups']}>
                                                                         {(fields, { add, remove }) => (
                                                                             <>
-                                                                                {fields.length > 0 ? (
-                                                                                    fields.map(({ key: groupKey, name: groupName, ...groupField }, groupIndex) => {
-                                                                                        const listKey = `${name}-${groupIndex}`;
-                                                                                        const targetMode =
-                                                                                            groupTargetAgentModes[listKey] === 'list'
-                                                                                                ? 'list'
-                                                                                                : 'expression';
-                                                                                        return (
-                                                                                            <React.Fragment key={groupKey}>
-                                                                                                <Row gutter={16}>
-                                                                                                    <Col span={12}>
-                                                                                                        <Form.Item
-                                                                                                            label={t('workflow.targetAgentMode')}
-                                                                                                            tooltip={t('workflow.targetAgentModeTooltip')}
-                                                                                                            style={{ marginBottom: 8 }}
-                                                                                                        >
-                                                                                                            <Select
-                                                                                                                style={{ width: '100%' }}
-                                                                                                                value={targetMode}
-                                                                                                                onChange={(value) =>
-                                                                                                                    handleGroupTargetAgentModeChange(
-                                                                                                                        name,
-                                                                                                                        groupIndex,
-                                                                                                                        value as 'list' | 'expression',
-                                                                                                                    )
-                                                                                                                }
-                                                                                                                options={[
-                                                                                                                    {
-                                                                                                                        value: 'list',
-                                                                                                                        label: t('workflow.targetAgentModeList'),
-                                                                                                                    },
-                                                                                                                    {
-                                                                                                                        value: 'expression',
-                                                                                                                        label: t('workflow.targetAgentModeExpression'),
-                                                                                                                    },
-                                                                                                                ]}
-                                                                                                            />
-                                                                                                        </Form.Item>
-                                                                                                        {targetMode === 'list' ? (
-                                                                                                            <Form.Item
-                                                                                                                {...groupField}
-                                                                                                                name={[groupName, 'target_agent']}
-                                                                                                                label={t('workflow.targetAgentIds')}
-                                                                                                                rules={[
-                                                                                                                    {
-                                                                                                                        required: true,
-                                                                                                                        message: t('workflow.pleaseEnterTargetAgent'),
-                                                                                                                    },
-                                                                                                                ]}
-                                                                                                                tooltip={t('workflow.targetAgentIdsTooltip')}
-                                                                                                                style={{ marginBottom: 8 }}
-                                                                                                            >
-                                                                                                                <Input
-                                                                                                                    placeholder="1,2,3"
-                                                                                                                    onChange={(e) => {
-                                                                                                                        const value = e.target.value
-                                                                                                                            .split(',')
-                                                                                                                            .map((v) => parseInt(v.trim()))
-                                                                                                                            .filter((v) => !isNaN(v));
-                                                                                                                        form.setFieldValue(
-                                                                                                                            ['config', name, 'groups', groupIndex, 'target_agent'],
-                                                                                                                            value,
-                                                                                                                        );
-                                                                                                                    }}
-                                                                                                                />
-                                                                                                            </Form.Item>
-                                                                                                        ) : (
-                                                                                                            <Form.Item
-                                                                                                                {...groupField}
-                                                                                                                name={[groupName, 'target_agent']}
-                                                                                                                label={t('workflow.targetAgentExpression')}
-                                                                                                                tooltip={t('workflow.targetAgentExpressionTooltip')}
-                                                                                                                style={{ marginBottom: 8 }}
-                                                                                                            >
-                                                                                                                <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
-                                                                                                            </Form.Item>
-                                                                                                        )}
-                                                                                                    </Col>
-                                                                                                    <Col span={12}>
-                                                                                                        <Form.Item
-                                                                                                            {...groupField}
-                                                                                                            name={[groupName, 'intervene_message']}
-                                                                                                            label={t('workflow.marketing_message')}
-                                                                                                            rules={[
-                                                                                                                {
-                                                                                                                    required: true,
-                                                                                                                    message: t('workflow.pleaseEnterMarketingMessage'),
-                                                                                                                },
-                                                                                                            ]}
-                                                                                                            tooltip={t('workflow.marketing_messageTooltip')}
-                                                                                                            style={{ marginBottom: 8 }}
-                                                                                                        >
-                                                                                                            <Input.TextArea rows={1} style={{ height: '32px' }} />
-                                                                                                        </Form.Item>
-                                                                                                    </Col>
-                                                                                                </Row>
-                                                                                                <Row gutter={16}>
-                                                                                                    <Col span={8}>
-                                                                                                        <Form.Item
-                                                                                                            {...groupField}
-                                                                                                            name={[groupName, 'reach_prob']}
-                                                                                                            label={t('workflow.reachProbability')}
-                                                                                                            rules={[
-                                                                                                                {
-                                                                                                                    required: true,
-                                                                                                                    message: t('workflow.pleaseEnterReachProb'),
-                                                                                                                },
-                                                                                                            ]}
-                                                                                                            tooltip={t('workflow.reachProbability')}
-                                                                                                            style={{ marginBottom: 8 }}
-                                                                                                        >
-                                                                                                            <Input type="number" min={0} max={1} step={0.01} style={{ width: '100%' }} />
-                                                                                                        </Form.Item>
-                                                                                                    </Col>
-                                                                                                    <Col span={8}>
-                                                                                                        <Form.Item
-                                                                                                            {...groupField}
-                                                                                                            name={[groupName, 'repeat']}
-                                                                                                            label={t('workflow.repeat')}
-                                                                                                            tooltip={t('workflow.repeat')}
-                                                                                                            initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.repeat}
-                                                                                                            style={{ marginBottom: 8 }}
-                                                                                                        >
-                                                                                                            <InputNumber min={1} style={{ width: '100%' }} />
-                                                                                                        </Form.Item>
-                                                                                                    </Col>
-                                                                                                    <Col span={8}>
-                                                                                                        <Form.Item
-                                                                                                            {...groupField}
-                                                                                                            name={[groupName, 'source']}
-                                                                                                            label={t('workflow.messageSource')}
-                                                                                                            tooltip={t('workflow.messageSourceTooltip')}
-                                                                                                            rules={[
-                                                                                                                {
-                                                                                                                    required: true,
-                                                                                                                    message: t('workflow.pleaseSelectMessageSource'),
-                                                                                                                },
-                                                                                                            ]}
-                                                                                                            initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.source}
-                                                                                                            style={{ marginBottom: 8 }}
-                                                                                                        >
-                                                                                                            <Select
-                                                                                                                style={{ width: '100%' }}
-                                                                                                                placeholder={t('workflow.pleaseSelectMessageSource')}
-                                                                                                                options={messageSourceOptions}
-                                                                                                            />
-                                                                                                        </Form.Item>
-                                                                                                    </Col>
-                                                                                                </Row>
-                                                                                                <Row>
-                                                                                                    <Col span={24}>
-                                                                                                        <Button
-                                                                                                            type="text"
-                                                                                                            danger
-                                                                                                            icon={<MinusCircleOutlined />}
-                                                                                                            onClick={() => remove(groupName)}
-                                                                                                        />
-                                                                                                    </Col>
-                                                                                                </Row>
-                                                                                            </React.Fragment>
-                                                                                        );
-                                                                                    })
-                                                                                ) : (
-                                                                                    <>
+                                                                                {fields.map(({ key: groupKey, name: groupName, ...groupField }) => (
+                                                                                    <React.Fragment key={groupKey}>
                                                                                         <Row gutter={16}>
-                                                                                            <Col span={12}>
-                                                                                                {topLevelTargetMode === 'list' ? (
-                                                                                                    <Form.Item
-                                                                                                        {...restField}
-                                                                                                        name={[name, 'target_agent']}
-                                                                                                        label={t('workflow.targetAgentIds')}
-                                                                                                        rules={[
-                                                                                                            {
-                                                                                                                required: true,
-                                                                                                                message: t('workflow.pleaseEnterTargetAgent'),
-                                                                                                            },
-                                                                                                        ]}
-                                                                                                        tooltip={t('workflow.targetAgentIdsTooltip')}
-                                                                                                        style={{ marginBottom: 8 }}
-                                                                                                    >
-                                                                                                        <Input
-                                                                                                            placeholder="1,2,3"
-                                                                                                            onChange={(e) => {
-                                                                                                                const value = e.target.value
-                                                                                                                    .split(',')
-                                                                                                                    .map((v) => parseInt(v.trim()))
-                                                                                                                    .filter((v) => !isNaN(v));
-                                                                                                                form.setFieldValue(['config', name, 'target_agent'], value);
-                                                                                                            }}
-                                                                                                        />
-                                                                                                    </Form.Item>
-                                                                                                ) : (
-                                                                                                    <Form.Item
-                                                                                                        {...restField}
-                                                                                                        name={[name, 'target_agent']}
-                                                                                                        label={t('workflow.targetAgentExpression')}
-                                                                                                        tooltip={t('workflow.targetAgentExpressionTooltip')}
-                                                                                                        style={{ marginBottom: 8 }}
-                                                                                                    >
-                                                                                                        <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
-                                                                                                    </Form.Item>
-                                                                                                )}
+                                                                                            <Col span={8}>
+                                                                                                <Form.Item
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'description']}
+                                                                                                    label={t('workflow.description')}
+                                                                                                    tooltip={t('workflow.descriptionTooltip')}
+                                                                                                    initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.description}
+                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                >
+                                                                                                    <Input placeholder={t('workflow.enterStepDescription')} />
+                                                                                                </Form.Item>
                                                                                             </Col>
+                                                                                            <Col span={8}>
+                                                                                                <Form.Item
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'send_time']}
+                                                                                                    label={t('workflow.sendTime')}
+                                                                                                    tooltip={t('workflow.sendTimeTooltip')}
+                                                                                                    initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.send_time}
+                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                >
+                                                                                                    <Input placeholder={t('workflow.enterSendTime')} />
+                                                                                                </Form.Item>
+                                                                                            </Col>
+                                                                                            <Col span={8}>
+                                                                                                <Form.Item
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'target_agent_mode']}
+                                                                                                    label={t('workflow.targetAgentMode')}
+                                                                                                    tooltip={t('workflow.targetAgentModeTooltip')}
+                                                                                                    initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.target_agent_mode}
+                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                >
+                                                                                                    <Select
+                                                                                                        style={{ width: '100%' }}
+                                                                                                        options={[
+                                                                                                            { value: 'list', label: t('workflow.targetAgentModeList') },
+                                                                                                            { value: 'expression', label: t('workflow.targetAgentModeExpression') },
+                                                                                                        ]}
+                                                                                                        onChange={(value) => {
+                                                                                                            const modeValue = value as 'list' | 'expression';
+                                                                                                            if (modeValue === 'list') {
+                                                                                                                const current = form.getFieldValue(['config', name, 'groups', groupName, 'target_agent']);
+                                                                                                                if (typeof current === 'string') {
+                                                                                                                    const parsed = current
+                                                                                                                        .split(',')
+                                                                                                                        .map((v: string) => parseInt(v.trim(), 10))
+                                                                                                                        .filter((v: number) => !Number.isNaN(v));
+                                                                                                                    form.setFieldValue(['config', name, 'groups', groupName, 'target_agent'], parsed);
+                                                                                                                } else if (!Array.isArray(current)) {
+                                                                                                                    form.setFieldValue(['config', name, 'groups', groupName, 'target_agent'], []);
+                                                                                                                }
+                                                                                                            } else {
+                                                                                                                const current = form.getFieldValue(['config', name, 'groups', groupName, 'target_agent']);
+                                                                                                                if (Array.isArray(current)) {
+                                                                                                                    form.setFieldValue(
+                                                                                                                        ['config', name, 'groups', groupName, 'target_agent'],
+                                                                                                                        current.join(','),
+                                                                                                                    );
+                                                                                                                } else if (typeof current !== 'string') {
+                                                                                                                    form.setFieldValue(['config', name, 'groups', groupName, 'target_agent'], '');
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }}
+                                                                                                    />
+                                                                                                </Form.Item>
+                                                                                            </Col>
+                                                                                        </Row>
+                                                                                        <Row gutter={16}>
+                                                                                            <Form.Item
+                                                                                                noStyle
+                                                                                                shouldUpdate={(prev, cur) =>
+                                                                                                    prev?.config?.[name]?.groups?.[groupName]?.target_agent_mode !==
+                                                                                                    cur?.config?.[name]?.groups?.[groupName]?.target_agent_mode
+                                                                                                }
+                                                                                            >
+                                                                                                {({ getFieldValue }) => {
+                                                                                                    const mode =
+                                                                                                        getFieldValue([
+                                                                                                            'config',
+                                                                                                            name,
+                                                                                                            'groups',
+                                                                                                            groupName,
+                                                                                                            'target_agent_mode',
+                                                                                                        ]) || MARKETING_MESSAGE_GROUP_DEFAULT.target_agent_mode;
+                                                                                                    return (
+                                                                                                        <Col span={12}>
+                                                                                                            {mode === 'list' ? (
+                                                                                                                <Form.Item
+                                                                                                                    {...groupField}
+                                                                                                                    name={[groupName, 'target_agent']}
+                                                                                                                    label={t('workflow.targetAgentIds')}
+                                                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterTargetAgent') }]}
+                                                                                                                    tooltip={t('workflow.targetAgentIdsTooltip')}
+                                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                                >
+                                                                                                                    <Input
+                                                                                                                        placeholder="1,2,3"
+                                                                                                                        onChange={(e) => {
+                                                                                                                            const value = e.target.value
+                                                                                                                                .split(',')
+                                                                                                                                .map((v) => parseInt(v.trim(), 10))
+                                                                                                                                .filter((v) => !Number.isNaN(v));
+                                                                                                                            form.setFieldValue(
+                                                                                                                                ['config', name, 'groups', groupName, 'target_agent'],
+                                                                                                                                value,
+                                                                                                                            );
+                                                                                                                        }}
+                                                                                                                    />
+                                                                                                                </Form.Item>
+                                                                                                            ) : (
+                                                                                                                <Form.Item
+                                                                                                                    {...groupField}
+                                                                                                                    name={[groupName, 'target_agent']}
+                                                                                                                    label={t('workflow.targetAgentExpression')}
+                                                                                                                    tooltip={t('workflow.targetAgentExpressionTooltip')}
+                                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                                >
+                                                                                                                    <Input placeholder={t('workflow.targetAgentExpressionPlaceholder')} />
+                                                                                                                </Form.Item>
+                                                                                                            )}
+                                                                                                        </Col>
+                                                                                                    );
+                                                                                                }}
+                                                                                            </Form.Item>
                                                                                             <Col span={12}>
                                                                                                 <Form.Item
-                                                                                                    {...restField}
-                                                                                                    name={[name, 'intervene_message']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'intervene_message']}
                                                                                                     label={t('workflow.marketing_message')}
-                                                                                                    rules={[
-                                                                                                        {
-                                                                                                            required: true,
-                                                                                                            message: t('workflow.pleaseEnterMarketingMessage'),
-                                                                                                        },
-                                                                                                    ]}
+                                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterMarketingMessage') }]}
                                                                                                     tooltip={t('workflow.marketing_messageTooltip')}
                                                                                                     style={{ marginBottom: 8 }}
                                                                                                 >
@@ -1300,15 +1320,10 @@ const WorkflowList: React.FC = () => {
                                                                                         <Row gutter={16}>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...restField}
-                                                                                                    name={[name, 'reach_prob']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'reach_prob']}
                                                                                                     label={t('workflow.reachProbability')}
-                                                                                                    rules={[
-                                                                                                        {
-                                                                                                            required: true,
-                                                                                                            message: t('workflow.pleaseEnterReachProb'),
-                                                                                                        },
-                                                                                                    ]}
+                                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
                                                                                                     tooltip={t('workflow.reachProbability')}
                                                                                                     style={{ marginBottom: 8 }}
                                                                                                 >
@@ -1317,8 +1332,8 @@ const WorkflowList: React.FC = () => {
                                                                                             </Col>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...restField}
-                                                                                                    name={[name, 'repeat']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'repeat']}
                                                                                                     label={t('workflow.repeat')}
                                                                                                     tooltip={t('workflow.repeat')}
                                                                                                     initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.repeat}
@@ -1329,16 +1344,11 @@ const WorkflowList: React.FC = () => {
                                                                                             </Col>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
-                                                                                                    {...restField}
-                                                                                                    name={[name, 'source']}
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'source']}
                                                                                                     label={t('workflow.messageSource')}
                                                                                                     tooltip={t('workflow.messageSourceTooltip')}
-                                                                                                    rules={[
-                                                                                                        {
-                                                                                                            required: true,
-                                                                                                            message: t('workflow.pleaseSelectMessageSource'),
-                                                                                                        },
-                                                                                                    ]}
+                                                                                                    rules={[{ required: true, message: t('workflow.pleaseSelectMessageSource') }]}
                                                                                                     initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.source}
                                                                                                     style={{ marginBottom: 8 }}
                                                                                                 >
@@ -1350,8 +1360,18 @@ const WorkflowList: React.FC = () => {
                                                                                                 </Form.Item>
                                                                                             </Col>
                                                                                         </Row>
-                                                                                    </>
-                                                                                )}
+                                                                                        <Row>
+                                                                                            <Col span={24}>
+                                                                                                <Button
+                                                                                                    type="text"
+                                                                                                    danger
+                                                                                                    icon={<MinusCircleOutlined />}
+                                                                                                    onClick={() => remove(groupName)}
+                                                                                                />
+                                                                                            </Col>
+                                                                                        </Row>
+                                                                                    </React.Fragment>
+                                                                                ))}
                                                                                 <Form.Item style={{ marginBottom: 8 }}>
                                                                                     <Button
                                                                                         type="dashed"

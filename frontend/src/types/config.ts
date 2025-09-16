@@ -102,6 +102,7 @@ export interface WorkflowStepConfig {
 
 export interface MarketingGroupConfig {
   target_agent?: number[] | string | AgentFilterConfig;
+  target_agent_mode?: 'list' | 'expression';
   intervene_message: string;
   reach_prob: number;
   repeat?: number;
