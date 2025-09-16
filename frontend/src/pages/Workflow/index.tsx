@@ -8,13 +8,32 @@ import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { Survey } from '../../components/type';
 
+const MARKETING_MESSAGE_REACH_PROB_DEFAULT = 0.1;
+
+const clampReachProbability = (value: unknown): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const clamped = Math.min(Math.max(value, 0), 1);
+        return Math.round(clamped * 100) / 100;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = Number.parseFloat(value);
+        if (!Number.isNaN(parsed)) {
+            const clamped = Math.min(Math.max(parsed, 0), 1);
+            return Math.round(clamped * 100) / 100;
+        }
+    }
+
+    return MARKETING_MESSAGE_REACH_PROB_DEFAULT;
+};
+
 const MARKETING_MESSAGE_GROUP_DEFAULT = {
     description: '',
     send_time: '',
     target_agent_mode: 'expression' as 'list' | 'expression',
     target_agent: '',
     intervene_message: '',
-    reach_prob: 0.1,
+    reach_prob: MARKETING_MESSAGE_REACH_PROB_DEFAULT,
     repeat: 1,
     source: 'company',
 };
@@ -129,8 +148,9 @@ const ensureMarketingGroupDefaults = (group: any) => {
         updated = true;
     }
 
-    if (typeof normalized.reach_prob !== 'number') {
-        normalized.reach_prob = MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob;
+    const normalizedReachProb = clampReachProbability(normalized.reach_prob);
+    if (normalizedReachProb !== normalized.reach_prob) {
+        normalized.reach_prob = normalizedReachProb;
         updated = true;
     }
 
@@ -427,10 +447,7 @@ const WorkflowList: React.FC = () => {
                               send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
                               target_agent: step.target_agent,
                               intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
-                              reach_prob:
-                                  typeof step.reach_prob === 'number'
-                                      ? step.reach_prob
-                                      : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                              reach_prob: clampReachProbability(step.reach_prob),
                               repeat:
                                   typeof step.repeat === 'number' && step.repeat > 0
                                       ? step.repeat
@@ -511,10 +528,7 @@ const WorkflowList: React.FC = () => {
                               send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
                               target_agent: step.target_agent,
                               intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
-                              reach_prob:
-                                  typeof step.reach_prob === 'number'
-                                      ? step.reach_prob
-                                      : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                              reach_prob: clampReachProbability(step.reach_prob),
                               repeat:
                                   typeof step.repeat === 'number' && step.repeat > 0
                                       ? step.repeat
@@ -658,10 +672,7 @@ const WorkflowList: React.FC = () => {
                                 send_time: step.send_time ?? MARKETING_MESSAGE_GROUP_DEFAULT.send_time,
                                 target_agent: step.target_agent,
                                 intervene_message: step.intervene_message ?? MARKETING_MESSAGE_GROUP_DEFAULT.intervene_message,
-                                reach_prob:
-                                    typeof step.reach_prob === 'number'
-                                        ? step.reach_prob
-                                        : MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob,
+                                reach_prob: clampReachProbability(step.reach_prob),
                                 repeat:
                                     typeof step.repeat === 'number' && step.repeat > 0
                                         ? step.repeat
@@ -1177,7 +1188,7 @@ const WorkflowList: React.FC = () => {
                                                                         {(fields, { add, remove }) => (
                                                                             <>
                                                                                 {fields.map(({ key: groupKey, name: groupName, ...groupField }) => (
-                                                                                    <React.Fragment key={groupKey}>
+                                                                                    <React.Fragment key={groupKey}></React.Fragment>
                                                                                         <Row gutter={16}>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
@@ -1321,19 +1332,27 @@ const WorkflowList: React.FC = () => {
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
                                                                                                     {...groupField}
-                                                                                                    name={[groupName, 'reach_prob']}
-                                                                                                    label={t('workflow.reachProbability')}
-                                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
-                                                                                                    tooltip={t('workflow.reachProbability')}
-                                                                                                    style={{ marginBottom: 8 }}
-                                                                                                >
-                                                                                                    <InputNumber
-                                                                                                        min={0}
-                                                                                                        max={1}
-                                                                                                        step={0.01}
-                                                                                                        style={{ width: '100%' }}
-                                                                                                    />
-                                                                                                </Form.Item>
+                                                                                                   name={[groupName, 'reach_prob']}
+                                                                                                   label={t('workflow.reachProbability')}
+                                                                                                   rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
+                                                                                                   tooltip={t('workflow.reachProbability')}
+                                                                                                    initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob}
+                                                                                                    normalize={(value: number | string | null) => {
+                                                                                                        if (value === null || value === undefined || value === '') {
+                                                                                                            return value;
+                                                                                                        }
+                                                                                                        return clampReachProbability(value);
+                                                                                                    }}
+                                                                                                   style={{ marginBottom: 8 }}
+                                                                                               >
+                                                                                                   <InputNumber
+                                                                                                       min={0}
+                                                                                                       max={1}
+                                                                                                       step={0.01}
+                                                                                                        precision={2}
+                                                                                                       style={{ width: '100%' }}
+                                                                                                   />
+                                                                                               </Form.Item>
                                                                                             </Col>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
