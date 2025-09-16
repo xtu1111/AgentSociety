@@ -1188,7 +1188,7 @@ const WorkflowList: React.FC = () => {
                                                                         {(fields, { add, remove }) => (
                                                                             <>
                                                                                 {fields.map(({ key: groupKey, name: groupName, ...groupField }) => (
-                                                                                    <React.Fragment key={groupKey}></React.Fragment>
+                                                                                    <React.Fragment key={groupKey}>
                                                                                         <Row gutter={16}>
                                                                                             <Col span={8}>
                                                                                                 <Form.Item
