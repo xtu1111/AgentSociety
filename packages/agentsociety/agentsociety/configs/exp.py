@@ -115,6 +115,48 @@ class MarketingGroupConfig(BaseModel):
     """Source of the marketing message (company, government, influencer, media, peer, other)"""
 
     @model_validator(mode="after")
+    def normalize_target_agent(self):
+        """Coerce ``target_agent`` into a runtime-friendly structure."""
+
+        mode: Literal["list", "expression"] = (
+            self.target_agent_mode if self.target_agent_mode in {"list", "expression"} else "expression"
+        )
+
+        if isinstance(self.target_agent, str):
+            target_agent_str = self.target_agent.strip()
+            if mode == "list":
+                if not target_agent_str:
+                    self.target_agent = []
+                else:
+                    ids: list[int] = []
+                    for part in target_agent_str.split(","):
+                        part = part.strip()
+                        if not part:
+                            continue
+                        try:
+                            ids.append(int(part))
+                        except ValueError as exc:
+                            raise ValueError(
+                                "target_agent must be a comma separated list of integers when target_agent_mode is 'list'"
+                            ) from exc
+                    self.target_agent = ids
+            else:
+                if target_agent_str:
+                    self.target_agent = AgentFilterConfig(filter_str=target_agent_str)
+                else:
+                    self.target_agent = None
+        elif isinstance(self.target_agent, list):
+            normalized_ids: list[int] = []
+            for raw_id in self.target_agent:
+                try:
+                    normalized_ids.append(int(raw_id))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("target_agent list may only contain integers") from exc
+            self.target_agent = normalized_ids
+
+        return self
+
+    @model_validator(mode="after")
     def validate_prob(self):
         if not 0 <= self.reach_prob <= 1:
             raise ValueError("reach_prob must be between 0 and 1")

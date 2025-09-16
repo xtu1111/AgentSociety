@@ -1050,12 +1050,17 @@ class SimulationEngine:
         return self._messager
 
     async def _extract_target_agent_ids(
-        self, target_agent: Optional[Union[list[int], AgentFilterConfig]] = None
+        self, target_agent: Optional[Union[list[int], str, AgentFilterConfig]] = None
     ) -> list[int]:
         if target_agent is None:
             raise ValueError("target_agent is required")
         elif isinstance(target_agent, list):
             return target_agent
+        elif isinstance(target_agent, str):
+            filter_str = target_agent.strip()
+            if filter_str:
+                return await self.filter(filter_str=filter_str)
+            return await self.filter()
         elif isinstance(target_agent, AgentFilterConfig):
             return await self.filter(
                 types=target_agent.agent_class, filter_str=target_agent.filter_str # type: ignore
