@@ -29,3 +29,10 @@ agentsociety_data/
 !tests/
 !tests/**
 tests/**/__pycache__/
+
+# Ignore frontend build
+frontend/dist/
+
+# Ignore packaged frontend builds
+packages/agentsociety/agentsociety/_dist/
+packages/agentsociety-community/agentsociety_community/_dist/
