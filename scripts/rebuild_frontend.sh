@@ -28,4 +28,15 @@ mkdir -p packages/agentsociety/agentsociety/_dist \
 cp -r frontend/dist/* packages/agentsociety/agentsociety/_dist/
 cp -r frontend/dist/* packages/agentsociety-community/agentsociety_community/_dist/
 
+SITE_PACKAGES=$($VIRTUAL_ENV/bin/python -c 'import site; print(site.getsitepackages()[0])')
+
+TARGET1=$SITE_PACKAGES/agentsociety/_dist
+TARGET2=$SITE_PACKAGES/agentsociety_community/_dist
+
+echo ">>> 拷贝构建结果到 site-packages ..."
+rm -rf $TARGET1 $TARGET2
+mkdir -p $TARGET1 $TARGET2
+cp -r frontend/dist/* $TARGET1/
+cp -r frontend/dist/* $TARGET2/
+
 echo ">>> ✅ 前端重新打包完成，记得刷新浏览器查看效果。"

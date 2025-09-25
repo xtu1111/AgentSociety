@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Button, Card, Space, Modal, message, Tooltip, Input, Popconfirm, Form, Col, Row, InputNumber, Select, Divider, Alert, SelectProps } from 'antd';
+import { Table, Button, Card, Space, Modal, message, Tooltip, Input, Popconfirm, Form, Col, Row, InputNumber, Select, Divider, Alert, SelectProps, List } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, ExportOutlined, MinusCircleOutlined, QuestionCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { ConfigWrapper, WorkflowStepConfig, ExpConfig } from '../../types/config';
 import { WorkflowType } from '../../utils/enums';
@@ -9,6 +9,23 @@ import { useTranslation } from 'react-i18next';
 import { Survey } from '../../components/type';
 
 const MARKETING_MESSAGE_REACH_PROB_DEFAULT = 0.1;
+
+const normalizeTags = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+        const normalized = value
+            .map((tag) => (typeof tag === 'string' ? tag.trim() : String(tag ?? '').trim()))
+            .filter((tag) => tag.length > 0);
+        return Array.from(new Set(normalized));
+    }
+    if (typeof value === 'string') {
+        const normalized = value
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter((tag) => tag.length > 0);
+        return Array.from(new Set(normalized));
+    }
+    return [];
+};
 
 const clampReachProbability = (value: unknown): number => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -36,6 +53,7 @@ const MARKETING_MESSAGE_GROUP_DEFAULT = {
     reach_prob: MARKETING_MESSAGE_REACH_PROB_DEFAULT,
     repeat: 1,
     source: 'company',
+    tags: [] as string[],
 };
 
 const MESSAGE_SOURCE_OPTIONS = [
@@ -164,12 +182,34 @@ const ensureMarketingGroupDefaults = (group: any) => {
         updated = true;
     }
 
+    const currentTags = normalized.tags;
+    const normalizedTags = normalizeTags(currentTags);
+    const tagsChanged =
+        !Array.isArray(currentTags) ||
+        currentTags.length !== normalizedTags.length ||
+        currentTags.some((tag: any, index: number) => typeof tag !== 'string' || tag.trim() !== normalizedTags[index]);
+    if (tagsChanged) {
+        normalized.tags = normalizedTags;
+        updated = true;
+    }
+
+    if (!Array.isArray(normalized.tags)) {
+        normalized.tags = MARKETING_MESSAGE_GROUP_DEFAULT.tags;
+    }
+
     return updated ? normalized : group;
 };
 interface FormValues {
     name: string;
     description?: string;
     config: WorkflowStepConfig[];
+}
+
+interface CommunityWorkflow {
+    id: string;
+    name: string;
+    description?: string;
+    steps: WorkflowStepConfig[];
 }
 
 const WorkflowList: React.FC = () => {
@@ -185,6 +225,7 @@ const WorkflowList: React.FC = () => {
     const [targetAgentModes, setTargetAgentModes] = useState<{ [key: string]: 'list' | 'expression' }>({});
     const [agentClasses, setAgentClasses] = useState<{ [agentType: string]: { value: string; label: string }[] }>({});
     const [loadingAgentClasses, setLoadingAgentClasses] = useState<{ [agentType: string]: boolean }>({});
+    const [communityWorkflows, setCommunityWorkflows] = useState<CommunityWorkflow[]>([]);
     const messageSourceOptions = useMemo(
         () => MESSAGE_SOURCE_OPTIONS.map(({ value, labelKey }) => ({ value, label: t(labelKey) })),
         [t]
@@ -316,6 +357,44 @@ const WorkflowList: React.FC = () => {
         [t]
     );
 
+    const parseCommunityWorkflows = (payload: any): CommunityWorkflow[] => {
+        if (!payload) {
+            return [];
+        }
+        const result: CommunityWorkflow[] = [];
+        const pushWorkflow = (key: string, entry: any) => {
+            if (!entry) {
+                return;
+            }
+            const rawSteps = Array.isArray(entry?.steps)
+                ? entry.steps
+                : Array.isArray(entry?.workflow)
+                  ? entry.workflow
+                  : Array.isArray(entry?.config?.workflow)
+                    ? entry.config.workflow
+                    : [];
+            if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+                return;
+            }
+            const steps = rawSteps.map((step: WorkflowStepConfig) => ({ ...step }));
+            const name = entry?.name ?? key ?? 'community_workflow';
+            const description = entry?.description ?? entry?.config?.description ?? undefined;
+            const id = key || entry?.id || name;
+            result.push({ id, name, description, steps });
+        };
+
+        if (Array.isArray(payload)) {
+            payload.forEach((item, index) => {
+                const key = item?.id ?? item?.name ?? `community-${index}`;
+                pushWorkflow(key, item);
+            });
+        } else if (typeof payload === 'object') {
+            Object.entries(payload).forEach(([key, value]) => pushWorkflow(key, value));
+        }
+
+        return result;
+    };
+
     // 获取agent classes的函数
     const fetchAgentClasses = async () => {
         if (agentClasses['citizen'] && agentClasses['supervisor']) return; // 如果已经加载过，直接返回
@@ -407,6 +486,28 @@ const WorkflowList: React.FC = () => {
         init();
     }, []);
 
+    useEffect(() => {
+        const fetchSchema = async () => {
+            try {
+                const response = await fetchCustom('/api/experiments/schema');
+                if (!response.ok) {
+                    return;
+                }
+                const payload = await response.json();
+                const schemaData = payload?.data ?? payload;
+                const community = parseCommunityWorkflows(schemaData?.community_workflows);
+                if (community.length > 0) {
+                    setCommunityWorkflows(community);
+                }
+            } catch (error) {
+                console.error('Failed to fetch experiment schema:', error);
+            }
+        };
+
+        fetchSchema();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Handle search
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSearchText(e.target.value);
@@ -416,6 +517,16 @@ const WorkflowList: React.FC = () => {
     const filteredWorkflows = workflows.filter(workflow =>
         workflow.name.toLowerCase().includes(searchText.toLowerCase()) ||
         (workflow.description && workflow.description.toLowerCase().includes(searchText.toLowerCase()))
+    );
+
+    const filteredCommunityWorkflows = useMemo(
+        () =>
+            communityWorkflows.filter(
+                (workflow) =>
+                    workflow.name.toLowerCase().includes(searchText.toLowerCase()) ||
+                    (workflow.description && workflow.description.toLowerCase().includes(searchText.toLowerCase()))
+            ),
+        [communityWorkflows, searchText]
     );
 
     // Handle create new workflow
@@ -453,6 +564,7 @@ const WorkflowList: React.FC = () => {
                                       ? step.repeat
                                       : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
                               source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                              tags: normalizeTags(step.tags),
                           },
                       ];
                 const normalizedGroups = baseGroups.map((group: any) => ensureMarketingGroupDefaults(group));
@@ -460,7 +572,7 @@ const WorkflowList: React.FC = () => {
                     ...step,
                     groups: normalizedGroups,
                 };
-                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source', 'tags'].forEach(
                     (field) => {
                         if (field in nextStep) {
                             delete nextStep[field];
@@ -534,6 +646,7 @@ const WorkflowList: React.FC = () => {
                                       ? step.repeat
                                       : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
                               source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                              tags: normalizeTags(step.tags),
                           },
                       ];
                 const normalizedGroups = baseGroups.map((group: any) => ensureMarketingGroupDefaults(group));
@@ -541,7 +654,7 @@ const WorkflowList: React.FC = () => {
                     ...step,
                     groups: normalizedGroups,
                 };
-                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source', 'tags'].forEach(
                     (field) => {
                         if (field in nextStep) {
                             delete nextStep[field];
@@ -592,6 +705,21 @@ const WorkflowList: React.FC = () => {
             config: processedConfig,
         });
         setIsModalVisible(true);
+    };
+
+    const handleUseCommunityWorkflow = (workflow: CommunityWorkflow) => {
+        const pseudoWorkflow: ConfigWrapper<WorkflowStepConfig[]> = {
+            name: workflow.name,
+            description: workflow.description ?? '',
+            config: workflow.steps.map((step) => JSON.parse(JSON.stringify(step))) as WorkflowStepConfig[],
+        };
+        handleDuplicate(pseudoWorkflow);
+        setTimeout(() => {
+            form.setFieldsValue({
+                name: workflow.name,
+                description: workflow.description ?? '',
+            });
+        }, 0);
     };
 
     // Handle delete workflow
@@ -678,6 +806,7 @@ const WorkflowList: React.FC = () => {
                                         ? step.repeat
                                         : MARKETING_MESSAGE_GROUP_DEFAULT.repeat,
                                 source: step.source ?? MARKETING_MESSAGE_GROUP_DEFAULT.source,
+                                tags: normalizeTags(step.tags),
                             });
                             step.groups = [fallbackGroup];
                         }
@@ -689,6 +818,7 @@ const WorkflowList: React.FC = () => {
                         delete step.source;
                         delete step.send_time;
                         delete step.description;
+                        delete step.tags;
                         if (step.agent_class) {
                             delete step.agent_class;
                         }
@@ -804,7 +934,7 @@ const WorkflowList: React.FC = () => {
                     stepChanged = true;
                 }
 
-                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source'].forEach(
+                ['description', 'send_time', 'target_agent', 'intervene_message', 'reach_prob', 'repeat', 'source', 'tags'].forEach(
                     (field) => {
                         if (field in nextStep) {
                             ensureNextStep();
@@ -914,6 +1044,51 @@ const WorkflowList: React.FC = () => {
                 onChange={handleSearch}
                 style={{ marginBottom: 8 }}
             />
+
+            {filteredCommunityWorkflows.length > 0 && (
+                <Card
+                    size="small"
+                    title={t('workflow.communityWorkflowsTitle')}
+                    style={{ marginBottom: 16 }}
+                >
+                    <div style={{ color: '#595959', marginBottom: 8 }}>
+                        {t('workflow.communityWorkflowsDescription')}
+                    </div>
+                    <List
+                        size="small"
+                        dataSource={filteredCommunityWorkflows}
+                        renderItem={(item) => (
+                            <List.Item
+                                key={item.id}
+                                actions={[
+                                    <Button
+                                        key="use"
+                                        type="link"
+                                        size="small"
+                                        onClick={() => handleUseCommunityWorkflow(item)}
+                                    >
+                                        {t('workflow.useCommunityWorkflow')}
+                                    </Button>,
+                                ]}
+                            >
+                                <List.Item.Meta
+                                    title={item.name}
+                                    description={(
+                                        <>
+                                            <div>{item.description || t('workflow.communityWorkflowsNoDescription')}</div>
+                                            <div style={{ color: '#888' }}>
+                                                {t('workflow.communityWorkflowsStepCount', {
+                                                    count: item.steps.length,
+                                                })}
+                                            </div>
+                                        </>
+                                    )}
+                                />
+                            </List.Item>
+                        )}
+                    />
+                </Card>
+            )}
 
             <Table
                 columns={columns}
@@ -1030,15 +1205,16 @@ const WorkflowList: React.FC = () => {
                                                                     delete cleanedStep.description;
                                                                     delete cleanedStep.send_time;
                                                                     delete cleanedStep.target_agent;
-                                                                    delete cleanedStep.intervene_message;
-                                                                    delete cleanedStep.reach_prob;
-                                                                    delete cleanedStep.repeat;
-                                                                    delete cleanedStep.source;
+                                                                delete cleanedStep.intervene_message;
+                                                                delete cleanedStep.reach_prob;
+                                                                delete cleanedStep.repeat;
+                                                                delete cleanedStep.source;
+                                                                delete cleanedStep.tags;
 
-                                                                    newSteps[name] = {
-                                                                        ...cleanedStep,
-                                                                        type: value,
-                                                                        groups,
+                                                                newSteps[name] = {
+                                                                    ...cleanedStep,
+                                                                    type: value,
+                                                                    groups,
                                                                     };
 
                                                                     setTargetAgentModes((prev) => {
@@ -1329,13 +1505,13 @@ const WorkflowList: React.FC = () => {
                                                                                             </Col>
                                                                                         </Row>
                                                                                         <Row gutter={16}>
-                                                                                            <Col span={8}>
+                                                                                            <Col span={6}>
                                                                                                 <Form.Item
                                                                                                     {...groupField}
-                                                                                                   name={[groupName, 'reach_prob']}
-                                                                                                   label={t('workflow.reachProbability')}
-                                                                                                   rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
-                                                                                                   tooltip={t('workflow.reachProbability')}
+                                                                                                    name={[groupName, 'reach_prob']}
+                                                                                                    label={t('workflow.reachProbability')}
+                                                                                                    rules={[{ required: true, message: t('workflow.pleaseEnterReachProb') }]}
+                                                                                                    tooltip={t('workflow.reachProbability')}
                                                                                                     initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.reach_prob}
                                                                                                     normalize={(value: number | string | null) => {
                                                                                                         if (value === null || value === undefined || value === '') {
@@ -1343,18 +1519,18 @@ const WorkflowList: React.FC = () => {
                                                                                                         }
                                                                                                         return clampReachProbability(value);
                                                                                                     }}
-                                                                                                   style={{ marginBottom: 8 }}
-                                                                                               >
-                                                                                                   <InputNumber
-                                                                                                       min={0}
-                                                                                                       max={1}
-                                                                                                       step={0.01}
+                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                >
+                                                                                                    <InputNumber
+                                                                                                        min={0}
+                                                                                                        max={1}
+                                                                                                        step={0.01}
                                                                                                         precision={2}
-                                                                                                       style={{ width: '100%' }}
-                                                                                                   />
-                                                                                               </Form.Item>
+                                                                                                        style={{ width: '100%' }}
+                                                                                                    />
+                                                                                                </Form.Item>
                                                                                             </Col>
-                                                                                            <Col span={8}>
+                                                                                            <Col span={6}>
                                                                                                 <Form.Item
                                                                                                     {...groupField}
                                                                                                     name={[groupName, 'repeat']}
@@ -1366,7 +1542,7 @@ const WorkflowList: React.FC = () => {
                                                                                                     <InputNumber min={1} style={{ width: '100%' }} />
                                                                                                 </Form.Item>
                                                                                             </Col>
-                                                                                            <Col span={8}>
+                                                                                            <Col span={6}>
                                                                                                 <Form.Item
                                                                                                     {...groupField}
                                                                                                     name={[groupName, 'source']}
@@ -1380,6 +1556,24 @@ const WorkflowList: React.FC = () => {
                                                                                                         style={{ width: '100%' }}
                                                                                                         placeholder={t('workflow.pleaseSelectMessageSource')}
                                                                                                         options={messageSourceOptions}
+                                                                                                    />
+                                                                                                </Form.Item>
+                                                                                            </Col>
+                                                                                            <Col span={6}>
+                                                                                                <Form.Item
+                                                                                                    {...groupField}
+                                                                                                    name={[groupName, 'tags']}
+                                                                                                    label={t('workflow.marketingTags')}
+                                                                                                    tooltip={t('workflow.marketingTagsTooltip')}
+                                                                                                    initialValue={MARKETING_MESSAGE_GROUP_DEFAULT.tags}
+                                                                                                    normalize={(value) => normalizeTags(value)}
+                                                                                                    style={{ marginBottom: 8 }}
+                                                                                                >
+                                                                                                    <Select
+                                                                                                        mode="tags"
+                                                                                                        style={{ width: '100%' }}
+                                                                                                        placeholder={t('workflow.marketingTagsPlaceholder')}
+                                                                                                        tokenSeparators={[',']}
                                                                                                     />
                                                                                                 </Form.Item>
                                                                                             </Col>

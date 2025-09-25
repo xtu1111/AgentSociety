@@ -10,4 +10,12 @@ export default {
         other: "マクロ環境",
     },
     pleaseSelectMessageSource: "メッセージの発信元を選択してください",
+    marketingTags: "タグ",
+    marketingTagsTooltip: "マーケティングメッセージの説明に使う任意のタグです。",
+    marketingTagsPlaceholder: "タグを入力して Enter キーを押してください",
+    communityWorkflowsTitle: "コミュニティワークフロー",
+    communityWorkflowsDescription: "コミュニティが共有するテンプレートから開始できます。",
+    communityWorkflowsNoDescription: "説明はありません。",
+    communityWorkflowsStepCount: "{{count}} ステップ",
+    useCommunityWorkflow: "テンプレートを使用",
 };

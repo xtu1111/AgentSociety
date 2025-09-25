@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from agentsociety.configs.exp import WorkflowType
 from ..models import ApiResponseWrapper
 from ..models.agent import (
     agent_dialog,
@@ -40,6 +41,20 @@ from ...llm import LLM, LLMConfig as RealLLMConfig
 __all__ = ["router"]
 
 router = APIRouter(tags=["experiments"])
+
+
+# Experiment schema information
+@router.get("/experiments/schema")
+async def get_experiment_schema() -> ApiResponseWrapper[Dict[str, Any]]:
+    """Return experiment-related schema metadata for the frontend UI."""
+
+    workflow_types = [workflow_type.value for workflow_type in WorkflowType]
+
+    schema: Dict[str, Any] = {
+        "workflow_types": workflow_types,
+    }
+
+    return ApiResponseWrapper(data=schema)
 
 
 # emotion normalization and scoring
@@ -128,6 +143,25 @@ async def list_experiments(
 
         experiments = cast(List[ApiExperiment], db_experiments)
         return ApiResponseWrapper(data=experiments)
+
+
+@router.get("/experiments/schema")
+async def get_experiment_schema() -> ApiResponseWrapper[Dict[str, Any]]:
+    """Return the global experiment schema expected by the frontend."""
+
+    schema = {
+        "workflow_types": [
+            "run",
+            "step",
+            "interview",
+            "survey",
+            "marketing_message",
+        ],
+        "community_workflows": {
+            "marketing_campaign": {},
+        },
+    }
+    return ApiResponseWrapper(data=schema)
 
 
 @router.get("/experiments/{exp_id}")

@@ -98,6 +98,9 @@ export default {
         other: "Macro Environment",
     },
     pleaseSelectMessageSource: "Please select message source",
+    marketingTags: "Tags",
+    marketingTagsTooltip: "Optional labels describing this marketing message",
+    marketingTagsPlaceholder: "Type a tag and press Enter",
     reachProbability: "Reach Probability",
     pleaseEnterReachProb: "Please enter reach probability",
     repeat: "Repeats",
@@ -125,6 +128,11 @@ export default {
         citizen: "Citizen",
         supervisor: "Supervisor"
     },
+    communityWorkflowsTitle: "Community Workflows",
+    communityWorkflowsDescription: "Start from curated templates shared by the community.",
+    communityWorkflowsNoDescription: "No description provided.",
+    communityWorkflowsStepCount: "{{count}} steps",
+    useCommunityWorkflow: "Use Template",
     documentationTip: "For detailed workflow configuration instructions, please visit",
     documentationLink: "Workflow Configuration Documentation"
-}; 
+};

@@ -90,6 +90,9 @@ export default {
         other: "宏观环境",
     },
     pleaseSelectMessageSource: "请选择消息来源",
+    marketingTags: "标签",
+    marketingTagsTooltip: "可选标签，用于描述本次营销消息",
+    marketingTagsPlaceholder: "输入后按回车确认标签",
     reachProbability: "触达概率",
     pleaseEnterReachProb: "请输入触达概率",
     repeat: "重复次数",
@@ -126,6 +129,11 @@ export default {
         citizen: "公民",
         supervisor: "监督者"
     },
+    communityWorkflowsTitle: "社区工作流",
+    communityWorkflowsDescription: "使用社区提供的预置模板快速开始。",
+    communityWorkflowsNoDescription: "暂无描述。",
+    communityWorkflowsStepCount: "{{count}} 个步骤",
+    useCommunityWorkflow: "使用模板",
     documentationTip: "如需工作流配置的详细说明，请访问",
     documentationLink: "工作流配置文档"
-}; 
+};
