@@ -43,6 +43,7 @@ const Deck = observer((props: {
     const [hovering, setHovering] = useState(false);
 
     let layers = [];
+    const showBaseMap = store.hasMap;
 
     // const aoiLayers = props.showAoi ? [new GeoJsonLayer({
     //     id: 'aoi',
@@ -65,7 +66,9 @@ const Deck = observer((props: {
     //     },
     // })] : [];
 
-    const agentList = Array.from(store.agents.values());
+    const agentList = Array.from(store.agents.values()).filter((agent) =>
+        Number.isFinite(agent.lng) && Number.isFinite(agent.lat)
+    );
 
     const getSentiment = (status: any): number | undefined => {
         if (status === null || status === undefined) {
@@ -247,7 +250,11 @@ const Deck = observer((props: {
 
     const mapCenter = store.mapCenter;
 
-    return <div style={props.style} onContextMenu={evt => evt.preventDefault()}>
+    const containerStyle = showBaseMap
+        ? props.style
+        : { ...props.style, backgroundColor: '#ffffff' };
+
+    return <div style={containerStyle} onContextMenu={evt => evt.preventDefault()}>
         <DeckGL
             initialViewState={{
                 longitude: mapCenter.lng,
@@ -310,10 +317,12 @@ const Deck = observer((props: {
                 }
             }}
         >
-            {/* @ts-ignore */}
-            <MapView id="map" width="100%" controller>
-                <MapGL mapboxAccessToken={MAPBOX_ACCESS_TOKEN} mapStyle={MAP_STYLE} />
-            </MapView>
+            {showBaseMap && (
+                /* @ts-ignore */
+                <MapView id="map" width="100%" controller>
+                    <MapGL mapboxAccessToken={MAPBOX_ACCESS_TOKEN} mapStyle={MAP_STYLE} />
+                </MapView>
+            )}
         </DeckGL>
     </div>;
 });

@@ -16,6 +16,7 @@ export default {
     selectMap: "Select Map",
     selectMapPlaceholder: "Select map",
     mapRequired: "Please select map",
+    noMapOption: "No Map",
     selectAgent: "Select Agent",
     selectAgentPlaceholder: "Select agent",
     agentRequired: "Please select agent",

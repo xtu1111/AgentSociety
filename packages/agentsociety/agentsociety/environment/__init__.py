@@ -6,13 +6,14 @@ from .environment import (
     EnvironmentStarter,
     EnvironmentConfig,
 )
-from .mapdata import MapData, MapConfig
+from .mapdata import EmptyMapData, MapData, MapConfig
 from .economy import EconomyClient
 
 __all__ = [
     "Environment",
     "EnvironmentStarter",
     "EnvironmentConfig",
+    "EmptyMapData",
     "MapData",
     "MapConfig",
     "PersonService",

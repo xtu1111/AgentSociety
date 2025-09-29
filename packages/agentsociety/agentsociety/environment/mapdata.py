@@ -14,13 +14,13 @@ from ..logger import get_logger
 from ..s3 import S3Config, S3Client
 from .utils.const import POI_CATG_DICT
 
-__all__ = ["MapData", "MapConfig"]
+__all__ = ["MapData", "MapConfig", "EmptyMapData"]
 
 
 class MapConfig(BaseModel):
     """Map configuration class."""
 
-    file_path: str = Field(...)
+    file_path: Optional[str] = Field(default=None)
     """Path to the map file. If s3 is enabled, the file will be downloaded from S3"""
 
 
@@ -36,86 +36,108 @@ class MapData:
         - config (MapConfig): Map config, Defaults to None. Map config.
         """
         get_logger().info("MapData init")
-        s3client = None
-        if s3config.enabled:
-            s3client = S3Client(s3config)
-        map_data = None
-        # 1. try to load from cache
-        cache_path = config.file_path+'.cache'
-        exists = (
-            s3client.exists(cache_path)
-            if s3client is not None
-            else os.path.exists(cache_path)
-        )
-        if exists:
-            get_logger().info("Start load cache file in MapData")
-            if s3client is not None:
-                map_bytes = s3client.download(cache_path)
-                map_data = pickle.loads(map_bytes)
-            else:
-                with open(cache_path, "rb") as f:
-                    map_data = pickle.load(f)
-            get_logger().info("Finish load cache file in MapData")
-        if map_data is None:
-            get_logger().info("No cache file found, start parse pb file in MapData")
-            if s3client is not None:
-                map_bytes = s3client.download(config.file_path)
-                pb = map_pb2.Map().FromString(map_bytes)
-            else:
-                with open(config.file_path, "rb") as f:
-                    pb = map_pb2.Map().FromString(f.read())
-
-            jsons = []
-            # add header
-            jsons.append(
-                {
-                    "class": "header",
-                    "data": MessageToDict(
-                        pb.header,
-                        including_default_value_fields=True,
-                        preserving_proto_field_name=True,
-                        use_integers_for_enums=True,
-                    ),
-                }
+        self.header: dict
+        self.aois: Dict[int, dict]
+        self.pois: Dict[int, dict]
+        if not config.file_path:
+            raise ValueError("MapData requires a map file path")
+        else:
+            s3client = None
+            if s3config.enabled:
+                s3client = S3Client(s3config)
+            map_data = None
+            cache_path = config.file_path + '.cache'
+            exists = (
+                s3client.exists(cache_path)
+                if s3client is not None
+                else os.path.exists(cache_path)
             )
-            # add aois
-            for aoi in pb.aois:
-                jsons.append(
-                    {
-                        "class": "aoi",
-                        "data": MessageToDict(
-                            aoi,
-                            including_default_value_fields=True,
-                            preserving_proto_field_name=True,
-                            use_integers_for_enums=True,
-                        ),
-                    }
-                )
-            # add pois
-            for poi in pb.pois:
-                jsons.append(
-                    {
-                        "class": "poi",
-                        "data": MessageToDict(
-                            poi,
-                            including_default_value_fields=True,
-                            preserving_proto_field_name=True,
-                            use_integers_for_enums=True,
-                        ),
-                    }
-                )
-            map_data = self._parse_map(jsons)
-            get_logger().info("Finish parse pb file")
-            if not exists:
-                get_logger().info("Start save cache file")
+            if exists:
+                get_logger().info("Start load cache file in MapData")
                 if s3client is not None:
-                    s3client.upload(pickle.dumps(map_data), cache_path)
+                    map_bytes = s3client.download(cache_path)
+                    map_data = pickle.loads(map_bytes)
                 else:
-                    with open(cache_path, "wb") as f:
-                        pickle.dump(map_data, f)
-                get_logger().info("Finish save cache file")
+                    with open(cache_path, "rb") as f:
+                        map_data = pickle.load(f)
+                get_logger().info("Finish load cache file in MapData")
+            if map_data is None:
+                get_logger().info("No cache file found, start parse pb file in MapData")
+                if s3client is not None:
+                    map_bytes = s3client.download(config.file_path)
+                    pb = map_pb2.Map().FromString(map_bytes)
+                else:
+                    with open(config.file_path, "rb") as f:
+                        pb = map_pb2.Map().FromString(f.read())
 
-        self.header: dict = map_data["header"]
+                jsons = []
+                jsons.append(
+                    {
+                        "class": "header",
+                        "data": MessageToDict(
+                            pb.header,
+                            including_default_value_fields=True,
+                            preserving_proto_field_name=True,
+                            use_integers_for_enums=True,
+                        ),
+                    }
+                )
+                for aoi in pb.aois:
+                    jsons.append(
+                        {
+                            "class": "aoi",
+                            "data": MessageToDict(
+                                aoi,
+                                including_default_value_fields=True,
+                                preserving_proto_field_name=True,
+                                use_integers_for_enums=True,
+                            ),
+                        }
+                    )
+                for poi in pb.pois:
+                    jsons.append(
+                        {
+                            "class": "poi",
+                            "data": MessageToDict(
+                                poi,
+                                including_default_value_fields=True,
+                                preserving_proto_field_name=True,
+                                use_integers_for_enums=True,
+                            ),
+                        }
+                    )
+                map_data = self._parse_map(jsons)
+                get_logger().info("Finish parse pb file")
+                if not exists:
+                    get_logger().info("Start save cache file")
+                    if s3client is not None:
+                        s3client.upload(pickle.dumps(map_data), cache_path)
+                    else:
+                        with open(cache_path, "wb") as f:
+                            pickle.dump(map_data, f)
+                    get_logger().info("Finish save cache file")
+
+            assert map_data is not None
+            self.header = map_data["header"]
+            self.aois = map_data["aois"]
+            self.pois = map_data["pois"]
+
+            (
+                self._aoi_tree,
+                self._aoi_list,
+                self._poi_tree,
+                self._poi_list,
+            ) = self._build_geo_index()
+
+        if not hasattr(self, "_aoi_tree"):
+            self._aoi_tree = None
+        if not hasattr(self, "_aoi_list"):
+            self._aoi_list = []
+        if not hasattr(self, "_poi_tree"):
+            self._poi_tree = None
+        if not hasattr(self, "_poi_list"):
+            self._poi_list = []
+
         """
         地图元数据，包含如下属性:
         Map metadata, including the following attributes:
@@ -127,41 +149,6 @@ class MapData:
         - west (float): 道路数据的西边界坐标。The coordinate of the western boundary of the Map data.
         - projection (string): PROJ.4 投影字符串，用以支持xy坐标到其他坐标系的转换。PROJ.4 projection string to support the conversion of xy coordinates to other coordinate systems.
         """
-
-        self.aois: Dict[int, dict] = map_data["aois"]
-        """
-        地图中的AOI集合（aoi），字典的值包含如下属性:
-        AOI collection (aoi) in the map, the value of the dictionary contains the following attributes:
-        - id (int): AOI编号。AOI ID.
-        - positions (list[XYPosition]): 多边形空间范围。Shape of polygon.
-        - area (float): 面积(单位: m2)。Area.
-        - driving_positions (list[LanePosition]): 和道路网中行车道的连接点。Connection points to driving lanes.
-        - walking_positions (list[LanePosition]): 和道路网中人行道的连接点。Connection points to pedestrian lanes.
-        - driving_gates (list[XYPosition]): 和道路网中行车道的连接点对应的AOI边界上的位置。Position on the AOI boundary corresponding to the connection point to driving lanes.
-        - walking_gates (list[XYPosition]): 和道路网中人行道的连接点对应的AOI边界上的位置。Position on the AOI boundary corresponding to the connection point to pedestrian lanes.
-        - urban_land_use (Optional[str]): 城市建设用地分类，参照执行标准GB 50137-2011（https://www.planning.org.cn/law/uploads/2013/1383993139.pdf） Urban Land use type, refer to the national standard GB 50137-2011.
-        - poi_ids (list[int]): 包含的POI列表。Contained POI IDs.
-        - shapely_xy (shapely.geometry.Polygon): AOI的形状（xy坐标系）。Shape of polygon (in xy coordinates).
-        - shapely_lnglat (shapely.geometry.Polygon): AOI的形状（经纬度坐标系）。Shape of polygon (in latitude and longitude).
-        """
-
-        self.pois: Dict[int, dict] = map_data["pois"]
-        """
-        地图中的POI集合（poi），字典的值包含如下属性:
-        POI collection (poi) in the map, the value of the dictionary contains the following attributes:
-        - id (int): POI编号。POI ID.
-        - name (string): POI名称。POI name.
-        - category (string): POI类别编码。POI category code.
-        - position (XYPosition): POI位置。POI position.
-        - aoi_id (int): POI所属的AOI编号。AOI ID to which the POI belongs.
-        """
-
-        (
-            self._aoi_tree,
-            self._aoi_list,
-            self._poi_tree,
-            self._poi_list,
-        ) = self._build_geo_index()
 
         self.poi_cate = POI_CATG_DICT
 
@@ -247,9 +234,15 @@ class MapData:
         # }
         get_logger().info("Start build geo index in MapData")
         aoi_list = list(self.aois.values())
-        aoi_tree = shapely.STRtree([aoi["shapely_xy"] for aoi in aoi_list])
         poi_list = list(self.pois.values())
-        poi_tree = shapely.STRtree([poi["shapely_xy"] for poi in poi_list])
+        if len(aoi_list) == 0:
+            aoi_tree = None
+        else:
+            aoi_tree = shapely.STRtree([aoi["shapely_xy"] for aoi in aoi_list])
+        if len(poi_list) == 0:
+            poi_tree = None
+        else:
+            poi_tree = shapely.STRtree([poi["shapely_xy"] for poi in poi_list])
         get_logger().info("Finish build geo index in MapData")
         return (
             aoi_tree,
@@ -299,6 +292,8 @@ class MapData:
         Returns:
         - Union[List[Tuple[Any, float]],List[Any]]: poi列表，每个元素为（poi, 距离）或者poi。poi list, each element is (poi, distance) or poi.
         """
+        if not self._poi_list:
+            return []
         if not isinstance(center, Point):
             center = Point(center)
         if radius is None:
@@ -307,6 +302,8 @@ class MapData:
             else:
                 pois = [p for p in self._poi_list]
         else:
+            if self._poi_tree is None:
+                return []
             # 获取半径内的poi
             indices = self._poi_tree.query(center.buffer(radius))
             # 过滤掉不满足类别前缀的poi
@@ -357,8 +354,12 @@ class MapData:
         - List[Tuple[Any, float]]: aoi列表，每个元素为（aoi, 距离）。aoi list, each element is (aoi, distance).
         """
 
+        if not self._aoi_list:
+            return []
         if not isinstance(center, Point):
             center = Point(center)
+        if self._aoi_tree is None:
+            return []
         # 获取半径内的aoi
         indices = self._aoi_tree.query(center.buffer(radius))
         # 过滤掉不满足城市用地条件的aoi
@@ -377,3 +378,65 @@ class MapData:
         if limit is not None:
             aois = aois[:limit]
         return aois
+
+
+class EmptyMapData:
+    """Fallback map implementation used when no map file is configured."""
+
+    def __init__(self) -> None:
+        self.header: dict[str, Any] = {
+            "projection": "epsg:4326",
+            "name": "",
+            "date": "",
+            "north": 0.0,
+            "south": 0.0,
+            "east": 0.0,
+            "west": 0.0,
+        }
+        self.aois: Dict[int, dict[str, Any]] = {}
+        self.pois: Dict[int, dict[str, Any]] = {}
+        self._aoi_list: list[dict[str, Any]] = []
+        self._aoi_tree = None
+        self._poi_list: list[dict[str, Any]] = []
+        self._poi_tree = None
+        self.poi_cate = POI_CATG_DICT
+
+    def get_projector(self) -> str:
+        return "epsg:4326"
+
+    def get_all_pois(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_poi(self, poi_id: int) -> dict[str, Any]:
+        raise KeyError(poi_id)
+
+    def get_all_aois(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_aoi(self, aoi_id: int) -> dict[str, Any]:
+        raise KeyError(aoi_id)
+
+    def get_map_header(self) -> dict[str, Any]:
+        return self.header
+
+    def get_poi_cate(self):
+        return self.poi_cate
+
+    def query_pois(
+        self,
+        center: Union[Tuple[float, float], Point],
+        radius: float,
+        poi_type: Optional[Union[str, List[str]]] = None,
+        limit: Optional[int] = None,
+        return_distance: bool = False,
+    ) -> list[Any]:
+        return []
+
+    def query_aois(
+        self,
+        center: Union[Tuple[float, float], Point],
+        radius: float,
+        urban_land_uses: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Tuple[Any, float]]:
+        return []

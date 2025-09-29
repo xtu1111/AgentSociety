@@ -12,6 +12,7 @@ import yaml
 from pycityproto.city.map.v2 import map_pb2 as map_pb2
 from pycityproto.city.person.v2 import person_pb2 as person_pb2
 from pycityproto.city.person.v2 import person_service_pb2 as person_service
+from google.protobuf.json_format import MessageToDict
 from pycityproto.city.trip.v2.trip_pb2 import TripMode
 from pydantic import BaseModel, ConfigDict, Field
 from pyproj import Proj
@@ -20,7 +21,7 @@ from shapely.geometry import Point
 from ..logger import get_logger
 from ..s3 import S3Client, S3Config
 from .economy.econ_client import EconomyClient
-from .mapdata import MapConfig, MapData
+from .mapdata import EmptyMapData, MapConfig, MapData
 from .sim import CityClient
 from .syncer import Syncer
 from .utils import find_free_ports
@@ -38,6 +39,438 @@ __all__ = [
 
 POI_START_ID = 7_0000_0000
 
+
+class _NoOpPersonService:
+    def __init__(self) -> None:
+        self._persons: dict[int, dict[str, Any]] = {}
+        self._layout_indices: dict[int, int] = {}
+
+    def _layout_xy(self, person_id: int) -> tuple[float, float]:
+        """Generate a deterministic pseudo-position for mapless runs."""
+
+        if person_id not in self._layout_indices:
+            self._layout_indices[person_id] = len(self._layout_indices)
+
+        idx = self._layout_indices[person_id]
+        columns = 10
+        spacing = 0.01
+        row, col = divmod(idx, columns)
+        origin_offset = (columns - 1) / 2
+        x = (col - origin_offset) * spacing
+        y = (origin_offset - row) * spacing
+        return float(x), float(y)
+
+    def _default_motion(self, person_id: int) -> dict[str, Any]:
+        x, y = self._layout_xy(person_id)
+        return {
+            "position": {
+                "xy_position": {"x": x, "y": y},
+            }
+        }
+
+    def _extract_attr(self, obj: Any, attr: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(attr, default)
+        return getattr(obj, attr, default)
+
+    def _person_dict(self, person_obj: Any) -> dict[str, Any]:
+        if isinstance(person_obj, dict):
+            return dict(person_obj)
+        if person_obj is None:
+            return {}
+        try:
+            return MessageToDict(person_obj, preserving_proto_field_name=True)
+        except Exception:
+            return dict(person_obj.__dict__)
+
+    async def GetPerson(self, req):  # type: ignore[override]
+        person_id = self._extract_attr(req, "person_id")
+        person = self._persons.get(person_id)
+        if person is None:
+            motion = self._default_motion(int(person_id))
+            person = {"id": person_id, "motion": motion}
+            self._persons[int(person_id)] = dict(person)
+        # return a copy to prevent accidental mutation
+        return {"person": dict(person)}
+
+    async def AddPerson(self, req):  # type: ignore[override]
+        person_obj = self._extract_attr(req, "person", req)
+        person_dict = self._person_dict(person_obj)
+        person_id = person_dict.get("id")
+        if person_id is None:
+            raise ValueError("Person payload missing 'id'")
+        # ensure motion key exists for downstream updates
+        motion = person_dict.setdefault("motion", {})
+        motion.setdefault("position", self._default_motion(int(person_id))["position"])
+        self._persons[int(person_id)] = person_dict
+        return {"person_id": person_id}
+
+    async def SetSchedule(self, req):  # type: ignore[override]
+        # Scheduling has no effect without a simulator; keep payload but acknowledge call.
+        return {}
+
+    async def ResetPersonPosition(self, req):  # type: ignore[override]
+        person_id = self._extract_attr(req, "person_id")
+        if person_id in self._persons:
+            self._persons[int(person_id)]["motion"] = self._default_motion(int(person_id))
+        return {}
+
+    async def GetGlobalStatistics(self, req=None, *_):  # type: ignore[override]
+        return {
+            "num_completed_trips": 0,
+            "running_total_travel_time": 0,
+            "running_total_travel_distance": 0,
+        }
+
+
+class _NoOpCityClient:
+    def __init__(self) -> None:
+        self.person_service = _NoOpPersonService()
+
+
+class _NoOpEconomyClient:
+    """A lightweight in-memory stand-in for the gRPC economy client."""
+
+    def __init__(self) -> None:
+        self._citizen_ids: set[int] = set()
+        self._firm_ids: set[int] = set()
+        self._bank_ids: set[int] = set()
+        self._nbs_ids: set[int] = set()
+        self._government_ids: set[int] = set()
+        self._log_list: list[str] = []
+
+        self._agents: dict[int, dict[str, Any]] = {}
+        self._banks: dict[int, dict[str, Any]] = {}
+        self._firms: dict[int, dict[str, Any]] = {}
+        self._nbs: dict[int, dict[str, Any]] = {}
+        self._governments: dict[int, dict[str, Any]] = {}
+
+    def _store_for_type(self, entity_type: str) -> dict[int, dict[str, Any]]:
+        if entity_type == "agent":
+            return self._agents
+        if entity_type == "bank":
+            return self._banks
+        if entity_type == "firm":
+            return self._firms
+        if entity_type == "nbs":
+            return self._nbs
+        if entity_type == "government":
+            return self._governments
+        raise ValueError(f"Unsupported economy entity type: {entity_type}")
+
+    def _infer_type(self, entity_id: int) -> str:
+        if entity_id in self._citizen_ids:
+            return "agent"
+        if entity_id in self._bank_ids:
+            return "bank"
+        if entity_id in self._firm_ids:
+            return "firm"
+        if entity_id in self._nbs_ids:
+            return "nbs"
+        if entity_id in self._government_ids:
+            return "government"
+        raise ValueError(f"Unknown economy entity id: {entity_id}")
+
+    def _ensure_record(self, entity_id: int, entity_type: str) -> dict[str, Any]:
+        store = self._store_for_type(entity_type)
+        return store.setdefault(entity_id, {})
+
+    def _normalise_org_type(self, raw_type: Any) -> str:
+        if raw_type is None:
+            return "firm"
+        if isinstance(raw_type, str):
+            lowered = raw_type.lower()
+            if "bank" in lowered:
+                return "bank"
+            if "firm" in lowered:
+                return "firm"
+            if "nbs" in lowered:
+                return "nbs"
+            if "government" in lowered:
+                return "government"
+            if "agent" in lowered:
+                return "agent"
+        try:
+            # EconomyEntityType enums are ints; map known values.
+            mapping = {
+                1: "agent",
+                2: "bank",
+                3: "firm",
+                4: "government",
+                5: "nbs",
+            }
+            return mapping.get(int(raw_type), "firm")
+        except Exception:
+            return "firm"
+
+    def set_ids(
+        self,
+        citizen_ids: set[int],
+        firm_ids: set[int],
+        bank_ids: set[int],
+        nbs_ids: set[int],
+        government_ids: set[int],
+    ) -> None:
+        self._citizen_ids = set(citizen_ids)
+        self._firm_ids = set(firm_ids)
+        self._bank_ids = set(bank_ids)
+        self._nbs_ids = set(nbs_ids)
+        self._government_ids = set(government_ids)
+
+        for cid in self._citizen_ids:
+            self._ensure_record(cid, "agent")
+        for fid in self._firm_ids:
+            self._ensure_record(fid, "firm")
+        for bid in self._bank_ids:
+            self._ensure_record(bid, "bank")
+        for nid in self._nbs_ids:
+            self._ensure_record(nid, "nbs")
+        for gid in self._government_ids:
+            self._ensure_record(gid, "government")
+
+    async def get(self, entity_id: Union[int, list[int]], key: Union[str, list[str]]):
+        if isinstance(entity_id, list):
+            if isinstance(key, list):
+                return [await self.get(single_id, key) for single_id in entity_id]
+            return [await self.get(single_id, key) for single_id in entity_id]
+
+        entity_type = self._infer_type(entity_id)
+        record = self._ensure_record(entity_id, entity_type)
+        if isinstance(key, list):
+            return [record.get(single_key) for single_key in key]
+        return record.get(key)
+
+    async def update(
+        self,
+        entity_id: Union[int, list[int]],
+        key: str,
+        value: Union[Any, list[Any]],
+        mode: Literal["replace", "merge"] = "replace",
+    ) -> None:
+        if isinstance(entity_id, list):
+            if not isinstance(value, list):
+                raise ValueError("List of ids requires list of values")
+            if len(entity_id) != len(value):
+                raise ValueError("Mismatched ids and values length")
+            for single_id, single_value in zip(entity_id, value):
+                await self.update(single_id, key, single_value, mode)
+            return
+
+        entity_type = self._infer_type(entity_id)
+        record = self._ensure_record(entity_id, entity_type)
+        if mode == "merge":
+            original = record.get(key)
+            if isinstance(original, dict) and isinstance(value, dict):
+                original.update(value)
+                record[key] = original
+                return
+            if isinstance(original, list) and isinstance(value, list):
+                original.extend(value)
+                record[key] = original
+                return
+            if isinstance(original, set):
+                if isinstance(value, set):
+                    original |= value
+                elif isinstance(value, list):
+                    original.update(value)
+                record[key] = original
+                return
+        record[key] = value
+
+    async def add_agents(self, configs: Union[list[dict[str, Any]], dict[str, Any]]):
+        if isinstance(configs, dict):
+            configs = [configs]
+        for config in configs:
+            agent_id = config.get("id")
+            if agent_id is None:
+                continue
+            self._citizen_ids.add(agent_id)
+            record = self._ensure_record(agent_id, "agent")
+            record.update({k: v for k, v in config.items() if k != "id"})
+
+    async def add_orgs(self, configs: Union[list[dict[str, Any]], dict[str, Any]]):
+        if isinstance(configs, dict):
+            configs = [configs]
+        for config in configs:
+            org_id = config.get("id")
+            if org_id is None:
+                continue
+            org_type = self._normalise_org_type(config.get("type"))
+            if org_type == "bank":
+                self._bank_ids.add(org_id)
+            elif org_type == "firm":
+                self._firm_ids.add(org_id)
+            elif org_type == "nbs":
+                self._nbs_ids.add(org_id)
+            elif org_type == "government":
+                self._government_ids.add(org_id)
+            record = self._ensure_record(org_id, org_type)
+            record.update({k: v for k, v in config.items() if k not in {"id", "type"}})
+
+    async def calculate_real_gdp(self, nbs_id: int):
+        self._ensure_record(nbs_id, "nbs").setdefault("real_gdp", {})
+
+    async def calculate_taxes_due(
+        self,
+        government_id: int,
+        citizen_ids: list[int],
+        incomes: list[float],
+        enable_redistribution: bool = True,
+    ) -> tuple[list[float], list[float]]:
+        self._ensure_record(government_id, "government")
+        post_tax = list(incomes)
+        return list(incomes), post_tax
+
+    async def delta_update_firms(
+        self,
+        firm_id: Union[int, list[int]],
+        delta_price: Optional[Union[float, list[float]]] = None,
+        delta_inventory: Optional[Union[int, list[int]]] = None,
+        delta_demand: Optional[Union[float, list[float]]] = None,
+        delta_sales: Optional[Union[float, list[float]]] = None,
+        delta_currency: Optional[Union[float, list[float]]] = None,
+        add_employee_ids: Optional[Union[list[int], list[list[int]]]] = None,
+        remove_employee_ids: Optional[Union[list[int], list[list[int]]]] = None,
+    ) -> None:
+        await self._apply_delta_updates(
+            firm_id,
+            "firm",
+            {
+                "price": delta_price,
+                "inventory": delta_inventory,
+                "demand": delta_demand,
+                "sales": delta_sales,
+                "currency": delta_currency,
+            },
+            add_employee_ids,
+            remove_employee_ids,
+        )
+
+    async def delta_update_agents(
+        self,
+        agent_id: Union[int, list[int]],
+        new_firm_id: Optional[Union[int, list[int]]] = None,
+        delta_currency: Optional[Union[float, list[float]]] = None,
+        delta_skill: Optional[Union[float, list[float]]] = None,
+        delta_consumption: Optional[Union[float, list[float]]] = None,
+        delta_income: Optional[Union[float, list[float]]] = None,
+    ) -> None:
+        await self._apply_delta_updates(
+            agent_id,
+            "agent",
+            {
+                "currency": delta_currency,
+                "skill": delta_skill,
+                "consumption": delta_consumption,
+                "income": delta_income,
+            },
+        )
+        if new_firm_id is not None:
+            ids = [agent_id] if not isinstance(agent_id, list) else agent_id
+            firm_ids = (
+                [new_firm_id] * len(ids)
+                if not isinstance(new_firm_id, list)
+                else new_firm_id
+            )
+            for single_id, firm in zip(ids, firm_ids):
+                if firm is None:
+                    continue
+                record = self._ensure_record(single_id, "agent")
+                record["firm_id"] = firm
+
+    async def _apply_delta_updates(
+        self,
+        entity_id: Union[int, list[int]],
+        entity_type: str,
+        deltas: dict[str, Optional[Union[float, int, list[Any]]]],
+        add_list: Optional[Union[list[int], list[list[int]]]] = None,
+        remove_list: Optional[Union[list[int], list[list[int]]]] = None,
+    ) -> None:
+        ids = [entity_id] if isinstance(entity_id, int) else entity_id
+        add_values = self._expand_batch(add_list, len(ids))
+        remove_values = self._expand_batch(remove_list, len(ids))
+
+        prepared_deltas = {
+            key: self._expand_batch(value, len(ids)) for key, value in deltas.items()
+        }
+
+        for index, current_id in enumerate(ids):
+            record = self._ensure_record(current_id, entity_type)
+            for key, values in prepared_deltas.items():
+                value = values[index]
+                if value is None:
+                    continue
+                existing = record.get(key, 0)
+                if isinstance(existing, (int, float)) and isinstance(value, (int, float)):
+                    record[key] = existing + value
+                else:
+                    record[key] = value
+            if add_values:
+                additions = add_values[index]
+                if additions:
+                    employees = record.setdefault("employees", [])
+                    employees.extend(additions)
+            if remove_values:
+                removals = remove_values[index]
+                if removals:
+                    employees = record.setdefault("employees", [])
+                    record["employees"] = [
+                        emp for emp in employees if emp not in set(removals)
+                    ]
+
+    def _expand_batch(self, value: Any, length: int) -> list[Any]:
+        if value is None:
+            return [None] * length
+        if isinstance(value, list):
+            if len(value) == length:
+                return value
+            return [value] * length
+        return [value] * length
+
+    async def get_bank_ids(self) -> list[int]:
+        return sorted(self._bank_ids)
+
+    async def get_nbs_ids(self) -> list[int]:
+        return sorted(self._nbs_ids)
+
+    async def get_government_ids(self) -> list[int]:
+        return sorted(self._government_ids)
+
+    async def get_firm_ids(self) -> list[int]:
+        return sorted(self._firm_ids)
+
+    async def get_ids(self):
+        return (
+            set(self._citizen_ids),
+            set(self._bank_ids),
+            set(self._nbs_ids),
+            set(self._government_ids),
+            set(self._firm_ids),
+        )
+
+    async def update_agents(self, *_: Any, **__: Any) -> None:
+        return None
+
+    async def update_orgs(self, *_: Any, **__: Any) -> None:
+        return None
+
+    async def update_bank(self, *_: Any, **__: Any) -> None:
+        return None
+
+    async def update_firm(self, *_: Any, **__: Any) -> None:
+        return None
+
+    async def update_government(self, *_: Any, **__: Any) -> None:
+        return None
+
+    async def update_nbs(self, *_: Any, **__: Any) -> None:
+        return None
+
+    def get_log_list(self):
+        return list(self._log_list)
+
+    def clear_log_list(self):
+        self._log_list = []
 
 class EnvironmentConfig(BaseModel):
     """Configuration for the simulation environment."""
@@ -103,6 +536,7 @@ class Environment:
             - `syncer`: `ray.ObjectRef`, syncer for get_tick
         """
         self._map = map_data
+        self._has_map = not isinstance(map_data, EmptyMapData)
         self._create_poi_id_2_aoi_id()
         self._server_addr = server_addr
         self.poi_cate = POI_CATG_DICT
@@ -176,6 +610,10 @@ class Environment:
     @property
     def projector(self):
         return self._projector
+        
+    @property
+    def has_map(self) -> bool:
+        return self._has_map
 
     def get_log_list(self):
         return self._log_list
@@ -576,7 +1014,7 @@ class EnvironmentStarter(Environment):
 
     def __init__(
         self,
-        map_config: MapConfig,
+        map_config: Optional[MapConfig],
         environment_config: EnvironmentConfig,
         s3config: S3Config,
         log_dir: str,
@@ -591,12 +1029,17 @@ class EnvironmentStarter(Environment):
             - `environment_config` (EnvironmentConfig): Environment config
         """
         self._sim_bin_path = download_binary(home_dir)
-        self._map_config = map_config
+        self._map_config = map_config if map_config and map_config.file_path else None
         self._environment_config = environment_config
         self._s3config = s3config
         self._log_dir = log_dir
         self._home_dir = home_dir
-        mapdata = MapData(map_config, s3config)
+        if self._map_config is not None:
+            mapdata = MapData(self._map_config, s3config)
+            self._map_available = True
+        else:
+            mapdata = EmptyMapData()
+            self._map_available = False
 
         super().__init__(mapdata, None, environment_config)
 
@@ -626,6 +1069,13 @@ class EnvironmentStarter(Environment):
         """
         Initialize the environment including the syncer and the simulator.
         """
+        if not self._map_available:
+            get_logger().info("No map configured, skipping simulator startup")
+            self._syncer = None
+            self._server_addr = None
+            self._city_client = _NoOpCityClient()
+            self._economy_client = _NoOpEconomyClient()
+            return
         # =========================
         # init syncer
         # =========================
@@ -639,6 +1089,7 @@ class EnvironmentStarter(Environment):
         # =========================
 
         # if s3 enabled, download the map from s3
+        assert self._map_config is not None, "Map config missing despite availability"
         file_path = self._map_config.file_path
         if self._s3config.enabled:
             client = S3Client(self._s3config)
@@ -700,7 +1151,8 @@ class EnvironmentStarter(Environment):
     async def step(self, n: int):
         assert n > 0, "`n` must >=1!"
         for _ in range(n):
-            await self.syncer.step()
+            if self._syncer is not None:
+                await self._syncer.step()
             self._tick += 1
 
     async def get_metrics(self) -> list[Tuple[str, float, int]]:

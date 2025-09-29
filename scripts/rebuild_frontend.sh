@@ -28,15 +28,28 @@ mkdir -p packages/agentsociety/agentsociety/_dist \
 cp -r frontend/dist/* packages/agentsociety/agentsociety/_dist/
 cp -r frontend/dist/* packages/agentsociety-community/agentsociety_community/_dist/
 
-SITE_PACKAGES=$($VIRTUAL_ENV/bin/python -c 'import site; print(site.getsitepackages()[0])')
+PYTHON_BIN=""
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    PYTHON_BIN="$VIRTUAL_ENV/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+fi
 
-TARGET1=$SITE_PACKAGES/agentsociety/_dist
-TARGET2=$SITE_PACKAGES/agentsociety_community/_dist
+if [ -n "$PYTHON_BIN" ]; then
+    SITE_PACKAGES=$($PYTHON_BIN -c 'import site; print(site.getsitepackages()[0])')
 
-echo ">>> 拷贝构建结果到 site-packages ..."
-rm -rf $TARGET1 $TARGET2
-mkdir -p $TARGET1 $TARGET2
-cp -r frontend/dist/* $TARGET1/
-cp -r frontend/dist/* $TARGET2/
+    TARGET1=$SITE_PACKAGES/agentsociety/_dist
+    TARGET2=$SITE_PACKAGES/agentsociety_community/_dist
+
+    echo ">>> 拷贝构建结果到 site-packages ..."
+    rm -rf "$TARGET1" "$TARGET2"
+    mkdir -p "$TARGET1" "$TARGET2"
+    cp -r frontend/dist/* "$TARGET1"/
+    cp -r frontend/dist/* "$TARGET2"/
+else
+    echo ">>> ⚠️ 未找到可用的 Python 解释器，跳过拷贝到 site-packages 步骤。"
+fi
 
 echo ">>> ✅ 前端重新打包完成，记得刷新浏览器查看效果。"

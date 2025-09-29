@@ -253,6 +253,9 @@ class SimulationEngine:
         # filter base
         self._filter_base = {}
 
+        # mapless positioning cache
+        self._fallback_positions: dict[int, tuple[float, float]] = {}
+
     async def _init_embedding(self):
         """Initialize embedding model with timeout."""
         try:
@@ -372,6 +375,13 @@ class SimulationEngine:
             firm_ids = set()
             supervisor_ids = set()
             aoi_ids = self._environment.get_aoi_ids()
+            if aoi_ids:
+                aoi_choices = list(aoi_ids)
+            else:
+                get_logger().info(
+                    "No AOIs available in the current map; assigning null AOI ids."
+                )
+                aoi_choices = [None]
 
             # Check if any agent config uses memory_from_file
             agent_configs_normal = {
@@ -776,7 +786,7 @@ class SimulationEngine:
                 ), "aoi_id is not allowed to be set in memory_distributions because it will be generated in the initialization"
                 agent_config.memory_distributions["aoi_id"] = DistributionConfig(
                     dist_type=DistributionType.CHOICE,
-                    choices=list(aoi_ids),
+                    choices=list(aoi_choices),
                 )
                 firm_classes, _ = _init_agent_class(agent_config, self._config.env.s3)
                 firms = [
@@ -839,13 +849,10 @@ class SimulationEngine:
 
             # Step 3: Insert essential distributions for citizens
             memory_distributions = {}
-            for key, ids in [
-                ("home_aoi_id", aoi_ids),
-                ("work_aoi_id", aoi_ids),
-            ]:
+            for key in ["home_aoi_id", "work_aoi_id"]:
                 memory_distributions[key] = DistributionConfig(
                     dist_type=DistributionType.CHOICE,
-                    choices=list(ids),
+                    choices=list(aoi_choices),
                 )
             for generator in citizen_generators:
                 generator.merge_distributions(memory_distributions)
@@ -1446,22 +1453,45 @@ class SimulationEngine:
         statuses = []
         for agent in self._id2agent.values():
             if isinstance(agent, CitizenAgentBase):
+                lng: Optional[float]
+                lat: Optional[float]
+                parent_id: Optional[int]
                 try:
                     position = await agent.status.get("position")
                 except KeyError:
-                    get_logger().warning(
-                        f"No position for agent {agent.id}; skipping status save"
-                    )
-                    continue
-                x = position["xy_position"]["x"]
-                y = position["xy_position"]["y"]
-                lng, lat = self.environment.projector(x, y, inverse=True)
-                if "aoi_position" in position:
-                    parent_id = position["aoi_position"]["aoi_id"]
-                elif "lane_position" in position:
-                    parent_id = position["lane_position"]["lane_id"]
-                else:
+                    if self.environment.has_map:
+                        get_logger().warning(
+                            f"No position for agent {agent.id}; skipping status save"
+                        )
+                        continue
+                    lng, lat = self._ensure_mapless_position(agent.id)
                     parent_id = None
+                    fallback_position = {
+                        "xy_position": {"x": lng, "y": lat},
+                    }
+                    await agent.status.update(
+                        "position", fallback_position, mode="replace"
+                    )
+                    position = fallback_position
+                else:
+                    xy_position = position.get("xy_position", {})
+                    x = xy_position.get("x")
+                    y = xy_position.get("y")
+                    if x is None or y is None:
+                        if self.environment.has_map:
+                            get_logger().warning(
+                                f"Invalid position for agent {agent.id}; skipping status save"
+                            )
+                            continue
+                        lng, lat = self._ensure_mapless_position(agent.id)
+                    else:
+                        lng, lat = self.environment.projector(x, y, inverse=True)
+                    if "aoi_position" in position:
+                        parent_id = position["aoi_position"].get("aoi_id")
+                    elif "lane_position" in position:
+                        parent_id = position["lane_position"].get("lane_id")
+                    else:
+                        parent_id = None
                 current_plan = await agent.status.get("current_plan", {})
                 if current_plan is not None and current_plan:
                     step_index = current_plan.get("index", 0)
@@ -1513,6 +1543,20 @@ class SimulationEngine:
             await self._database_writer.write_statuses(  # type:ignore
                 statuses
             )
+
+    def _ensure_mapless_position(self, agent_id: int) -> tuple[float, float]:
+        position = self._fallback_positions.get(agent_id)
+        if position is None:
+            idx = len(self._fallback_positions)
+            columns = 10
+            spacing = 0.01
+            row, col = divmod(idx, columns)
+            origin_offset = (columns - 1) / 2
+            lng = (col - origin_offset) * spacing
+            lat = (origin_offset - row) * spacing
+            position = (float(lng), float(lat))
+            self._fallback_positions[agent_id] = position
+        return position
 
     async def delete_agents(self, target_agent_ids: list[int]):
         """

@@ -8,6 +8,7 @@ import { ConfigWrapper, LLMConfig, MapConfig, AgentsConfig, ExpConfig } from '..
 
 const { Text } = Typography;
 const { Option } = Select;
+const NO_MAP_OPTION_ID = 'none';
 
 // Add these interfaces at the top of the file
 interface WorkflowConfig extends ConfigWrapper<ExpConfig> {}
@@ -23,7 +24,7 @@ const CreateExperiment: React.FC = () => {
     const [selectedLLM, setSelectedLLM] = useState<string>('');
     const [selectedAgent, setSelectedAgent] = useState<string>('');
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>('');
-    const [selectedMap, setSelectedMap] = useState<string>('');
+    const [selectedMap, setSelectedMap] = useState<string>(NO_MAP_OPTION_ID);
     const [experimentName, setExperimentName] = useState<string>('');
     const [experimentRunning, setExperimentRunning] = useState(false);
     const [experimentId, setExperimentId] = useState<string | null>(null);
@@ -65,10 +66,21 @@ const CreateExperiment: React.FC = () => {
                 setMaps(mps);
 
                 // Set defaults if available
-                if (llmConfigs.length > 0) setSelectedLLM(llmConfigs[0].id);
-                if (agts.length > 0) setSelectedAgent(agts[0].id);
-                if (wkfs.length > 0) setSelectedWorkflow(wkfs[0].id);
-                if (mps.length > 0) setSelectedMap(mps[0].id);
+                if (llmConfigs.length > 0) {
+                    setSelectedLLM(llmConfigs[0].id);
+                    form.setFieldsValue({ llm: llmConfigs[0].id });
+                }
+                if (agts.length > 0) {
+                    setSelectedAgent(agts[0].id);
+                    form.setFieldsValue({ agent: agts[0].id });
+                }
+                if (wkfs.length > 0) {
+                    setSelectedWorkflow(wkfs[0].id);
+                    form.setFieldsValue({ workflow: wkfs[0].id });
+                }
+                // Default to "No Map" so users explicitly opt into a map layer.
+                setSelectedMap(NO_MAP_OPTION_ID);
+                form.setFieldsValue({ map: NO_MAP_OPTION_ID });
             } catch (error) {
                 message.error(t('experiment.messages.loadFailed'));
                 console.error(error);
@@ -78,7 +90,7 @@ const CreateExperiment: React.FC = () => {
         };
 
         loadConfigurations();
-    }, [t]);
+    }, [form, t]);
 
     // Clean up interval timer
     useEffect(() => {
@@ -115,27 +127,44 @@ const CreateExperiment: React.FC = () => {
         </div>
     );
 
+    const handleMapChange = (value: string) => {
+        setSelectedMap(value);
+        form.setFieldsValue({ map: value });
+    };
+
     // Handle form submission to start experiment
     const handleSubmit = async () => {
         setLoading(true);
         try {
-            // Validate form
-            await form.validateFields();
+            // Validate form and extract the current selections directly from the form state
+            const values = await form.validateFields();
+            const llmId = values.llm;
+            const agentId = values.agent;
+            const workflowId = values.workflow;
 
-            // Build configuration from selected components
-            const llm = llms.find(llm => llm.id === selectedLLM);
+            const rawMapSelection = values.map ?? selectedMap;
+            const currentMapSelection = typeof rawMapSelection === 'string'
+                ? rawMapSelection
+                : String(rawMapSelection ?? '');
+            const normalizedMapId = currentMapSelection.trim().toLowerCase();
+            const isNoMapSelected = normalizedMapId === '' || normalizedMapId === NO_MAP_OPTION_ID;
+
+            // Build configuration from selected components using the validated field values
+            const llm = llms.find(item => item.id === llmId);
             if (!llm) {
                 throw new Error('LLM not found');
             }
-            const map = maps.find(map => map.id === selectedMap);
-            if (!map) {
+            const map = isNoMapSelected
+                ? null
+                : maps.find(item => item.id === currentMapSelection);
+            if (!isNoMapSelected && !map) {
                 throw new Error('Map not found');
             }
-            const agent = agents.find(agent => agent.id === selectedAgent);
+            const agent = agents.find(item => item.id === agentId);
             if (!agent) {
                 throw new Error('Agent not found');
             }
-            const workflow = workflows.find(workflow => workflow.id === selectedWorkflow);
+            const workflow = workflows.find(item => item.id === workflowId);
             if (!workflow) {
                 throw new Error('Workflow not found');
             }
@@ -145,10 +174,12 @@ const CreateExperiment: React.FC = () => {
                     tenant_id: llm.tenant_id,
                     id: llm.id,
                 },
-                map: {
-                    tenant_id: map.tenant_id,
-                    id: map.id,
-                },
+                map: map
+                    ? {
+                        tenant_id: map.tenant_id,
+                        id: map.id,
+                    }
+                    : null,
                 agents: {
                     tenant_id: agent.tenant_id,
                     id: agent.id,
@@ -335,10 +366,17 @@ const CreateExperiment: React.FC = () => {
                                         style={{ width: '100%' }}
                                         loading={loading}
                                         value={selectedMap || undefined}
-                                        onChange={setSelectedMap}
+                                        onChange={handleMapChange}
                                         optionLabelProp="label"
                                         disabled={experimentRunning}
                                     >
+                                        <Option
+                                            key={NO_MAP_OPTION_ID}
+                                            value={NO_MAP_OPTION_ID}
+                                            label={t('experiment.noMapOption')}
+                                        >
+                                            <div>{t('experiment.noMapOption')}</div>
+                                        </Option>
                                         {maps.map(map => (
                                             <Option key={map.id} value={map.id} label={map.name}>
                                                 {renderOptionContent(map)}

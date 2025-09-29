@@ -43,7 +43,7 @@ class ExperimentRequest(BaseModel):
 
     llm: ConfigPrimaryKey
     agents: ConfigPrimaryKey
-    map: ConfigPrimaryKey
+    map: Optional[ConfigPrimaryKey] = None
     workflow: ConfigPrimaryKey
     exp_name: str
 
@@ -81,7 +81,12 @@ async def run_experiment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied",
         )
-    if config.map.tenant_id not in [tenant_id, ""]:
+    map_pk = config.map
+    if map_pk is not None:
+        map_id_normalized = map_pk.id.strip().lower()
+        if map_id_normalized in {"", "none", "null"}:
+            map_pk = None
+    if map_pk is not None and map_pk.tenant_id not in [tenant_id, ""]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permission denied",
@@ -139,22 +144,29 @@ async def run_experiment(
                         )
         agent_config = sim_agent_config.model_dump()
         # ===== Map config =====
-        stmt = select(MapConfig.config).where(
-            MapConfig.tenant_id == config.map.tenant_id,
-            MapConfig.id == uuid.UUID(config.map.id),
-        )
-        map_config = (await db.execute(stmt)).scalar_one_or_none()
-        if map_config is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Map config not found"
+        if map_pk is not None:
+            stmt = select(MapConfig.config).where(
+                MapConfig.tenant_id == map_pk.tenant_id,
+                MapConfig.id == uuid.UUID(map_pk.id),
             )
-        # change map_config to pydantic model
-        sim_map_config = SimMapConfig.model_validate(map_config)
-        if isinstance(webui_fs_client, FileSystemClient):
-            sim_map_config.file_path = webui_fs_client.get_absolute_path(
-                sim_map_config.file_path
-            )
-        map_config = sim_map_config.model_dump()
+            map_config = (await db.execute(stmt)).scalar_one_or_none()
+            if map_config is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Map config not found",
+                )
+            # change map_config to pydantic model
+            sim_map_config = SimMapConfig.model_validate(map_config)
+            if isinstance(webui_fs_client, FileSystemClient):
+                sim_map_config.file_path = webui_fs_client.get_absolute_path(
+                    sim_map_config.file_path
+                )
+            if not sim_map_config.file_path:
+                map_config = None
+            else:
+                map_config = sim_map_config.model_dump()
+        else:
+            map_config = None
         # ===== Workflow config =====
         stmt = select(WorkflowConfig.config).where(
             WorkflowConfig.tenant_id == config.workflow.tenant_id,
@@ -189,11 +201,12 @@ async def run_experiment(
 
     # Config model validate
     try:
-        Config.model_validate(c)
+        validated_config = Config.model_validate(c)
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+    c = validated_config.model_dump(mode="json", exclude_none=False)
 
     # Convert config to base64
     config_base64 = base64.b64encode(json.dumps(c).encode()).decode()

@@ -231,12 +231,17 @@ def check(config: str, config_base64: str, type: str):
     # check whether the map file exists
     # =================
     if type == "simulation":
-        if not os.path.exists(c.map.file_path): # type: ignore
+        if c.map is None or not c.map.file_path:
             click.echo(
-                f"Map file {c.map.file_path} does not exist. {click.style('Failed.', fg='red')}" # type: ignore
+                f"Map file. {click.style('Skipped (no map configured).', fg='yellow')}"
+            )
+        elif not os.path.exists(c.map.file_path):  # type: ignore
+            click.echo(
+                f"Map file {c.map.file_path} does not exist. {click.style('Failed.', fg='red')}"  # type: ignore
             )
             return
-        click.echo(f"Map file. {click.style('Passed.', fg='green')}")
+        else:
+            click.echo(f"Map file. {click.style('Passed.', fg='green')}")
 
 
 @cli.command()

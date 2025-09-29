@@ -16,6 +16,7 @@ export default {
     selectMap: "选择地图",
     selectMapPlaceholder: "请选择地图",
     mapRequired: "请选择地图",
+    noMapOption: "无地图",
     selectAgent: "选择智能体",
     selectAgentPlaceholder: "请选择智能体",
     agentRequired: "请选择智能体",

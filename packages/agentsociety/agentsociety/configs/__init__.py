@@ -71,7 +71,7 @@ class Config(BaseModel):
     env: EnvConfig
     """Environment configuration"""
 
-    map: MapConfig
+    map: Optional[MapConfig] = None
     """Map configuration"""
 
     agents: AgentsConfig

@@ -15,7 +15,7 @@ export interface LLMConfig {
 
 // Map Configuration
 export interface MapConfig {
-  file_path: string;
+  file_path?: string | null;
 }
 
 // Agent Configuration
@@ -136,7 +136,7 @@ export interface ExpConfig {
 // Root Configuration
 export interface Config {
   llm: LLMConfig[];
-  map: MapConfig;
+  map: MapConfig | null;
   agents: AgentsConfig;
   exp: ExpConfig;
 }

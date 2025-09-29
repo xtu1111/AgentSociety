@@ -28,10 +28,11 @@ const formatStatus = (status: any) => {
 
 export class ReplayStore {
     mapCenter: LngLat = {
-        lng: 116.39124329043085,
-        lat: 39.906120097057055,
+        lng: 0,
+        lat: 0,
     }
     mapCenterDone = false // 是否已经根据agent位置设置了mapCenter
+    hasMap = false
 
     expID?: string
     experiment?: Experiment
@@ -87,12 +88,20 @@ export class ReplayStore {
         }
         try {
             const res = await fetchCustom(`/api/experiments/${this.expID}`)
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`)
+            }
             const data = await res.json()
             runInAction(() => {
-                this.experiment = data.data as Experiment
+                const experiment = data.data as Experiment
+                this.experiment = experiment
+                this.hasMap = this._determineHasMap(experiment)
             })
             {
                 const res = await fetchCustom(`/api/experiments/${this.expID}/timeline`)
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`)
+                }
                 const data = await res.json()
                 runInAction(() => {
                     this._timeline = data.data as Time[]
@@ -109,8 +118,12 @@ export class ReplayStore {
                 }
             }
         } catch (err) {
-            message.error(`Failed to fetch experiment: ${JSON.stringify(err)}`, 3);
+            const errorMessage = err instanceof Error ? err.message : JSON.stringify(err)
+            message.error(`Failed to fetch experiment: ${errorMessage}`, 3);
             console.error('Failed to fetch experiment: ', err);
+            runInAction(() => {
+                this.hasMap = false
+            })
         }
     }
 
@@ -134,6 +147,231 @@ export class ReplayStore {
         }
     }
 
+    private _determineHasMap(experiment: Experiment | any): boolean {
+        const rawConfigCandidates = [
+            (experiment as any)?.config,
+            (experiment as any)?.config_base64,
+            (experiment as any)?.configBase64,
+        ]
+
+        let parsedConfig: any = undefined
+        for (const candidate of rawConfigCandidates) {
+            if (candidate === null || candidate === undefined) {
+                continue
+            }
+            if (typeof candidate === 'object') {
+                parsedConfig = candidate
+                break
+            }
+            if (typeof candidate !== 'string') {
+                continue
+            }
+            const textVariants = this._collectCandidateStrings(candidate)
+            for (const variant of textVariants) {
+                const parsedJson = this._tryParseJson(variant)
+                if (parsedJson !== undefined) {
+                    parsedConfig = parsedJson
+                    break
+                }
+            }
+            if (parsedConfig !== undefined) {
+                break
+            }
+        }
+
+        const mapSources: any[] = []
+        if (parsedConfig && typeof parsedConfig === 'object') {
+            if (parsedConfig.map !== undefined) {
+                mapSources.push(parsedConfig.map)
+            }
+            if ((parsedConfig as any).Map !== undefined) {
+                mapSources.push((parsedConfig as any).Map)
+            }
+        }
+        mapSources.push((experiment as any)?.map)
+        mapSources.push((experiment as any)?.map_config)
+        mapSources.push((experiment as any)?.mapConfig)
+
+        for (const source of mapSources) {
+            if (this._mapConfigIndicatesPresence(source)) {
+                return true
+            }
+        }
+
+        const textCandidates: string[] = []
+        for (const candidate of rawConfigCandidates) {
+            if (typeof candidate === 'string') {
+                textCandidates.push(...this._collectCandidateStrings(candidate))
+            }
+        }
+
+        for (const text of textCandidates) {
+            if (this._textHasMapIndicator(text)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private _collectCandidateStrings(value: string): string[] {
+        const trimmed = value.trim()
+        if (trimmed.length === 0) {
+            return []
+        }
+
+        const variants = [trimmed]
+
+        const normalized = trimmed.replace(/\s+/g, '')
+        const base64Pattern = /^[A-Za-z0-9+/=]+$/
+        if (base64Pattern.test(normalized) && normalized.length % 4 === 0) {
+            const globalScope: any = typeof globalThis !== 'undefined' ? globalThis : undefined
+            const decoders: Array<(input: string) => string> = []
+            if (globalScope?.atob) {
+                decoders.push((input) => globalScope.atob(input))
+            }
+            if (globalScope?.Buffer?.from) {
+                decoders.push((input) => globalScope.Buffer.from(input, 'base64').toString('utf-8'))
+            }
+            for (const decode of decoders) {
+                try {
+                    const decoded = decode(normalized)
+                    if (typeof decoded === 'string' && decoded.length > 0) {
+                        variants.push(decoded)
+                    }
+                } catch {
+                    // ignore decoding errors
+                }
+            }
+        }
+
+        return variants
+    }
+
+    private _tryParseJson(text: string): any | undefined {
+        try {
+            return JSON.parse(text)
+        } catch {
+            return undefined
+        }
+    }
+
+    private _mapConfigIndicatesPresence(mapConfig: any): boolean {
+        if (mapConfig === null || mapConfig === undefined) {
+            return false
+        }
+        if (typeof mapConfig === 'string') {
+            const normalized = this._normalizeScalar(mapConfig)
+            return normalized !== undefined
+        }
+        if (Array.isArray(mapConfig)) {
+            return mapConfig.some(item => this._mapConfigIndicatesPresence(item))
+        }
+        if (typeof mapConfig === 'object') {
+            const fileKeys = ['file_path', 'filePath', 'path', 'url']
+            for (const key of fileKeys) {
+                const value = (mapConfig as any)[key]
+                if (typeof value === 'string') {
+                    const normalized = this._normalizeScalar(value)
+                    if (normalized !== undefined) {
+                        return true
+                    }
+                }
+            }
+            const idKeys = ['map_id', 'mapId', 'id']
+            for (const key of idKeys) {
+                const value = (mapConfig as any)[key]
+                if (typeof value === 'string') {
+                    const normalized = this._normalizeScalar(value)
+                    if (normalized !== undefined) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    private _textHasMapIndicator(text: string): boolean {
+        if (typeof text !== 'string') {
+            return false
+        }
+
+        const lines = text.split(/\r?\n/)
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i]
+            const trimmed = line.trim()
+            if (trimmed.length === 0 || trimmed.startsWith('#')) {
+                continue
+            }
+            if (!trimmed.startsWith('map:')) {
+                continue
+            }
+
+            const colonIndex = line.indexOf(':')
+            const baseIndent = colonIndex >= 0 ? line.slice(0, colonIndex).search(/\S|$/) : 0
+            const inlineValue = trimmed.slice('map:'.length).trim()
+
+            if (inlineValue.length > 0) {
+                const inlineMatch = inlineValue.match(/(file_path|filePath|path|map_id|mapId|id)\s*[:=]\s*([^,}]+)[,}]?/i)
+                if (inlineMatch) {
+                    if (this._normalizeScalar(inlineMatch[2]) !== undefined) {
+                        return true
+                    }
+                } else if (this._normalizeScalar(inlineValue) !== undefined) {
+                    return true
+                }
+            }
+
+            for (let j = i + 1; j < lines.length; j++) {
+                const childLine = lines[j]
+                const childTrimmed = childLine.trim()
+                if (childTrimmed.length === 0 || childTrimmed.startsWith('#')) {
+                    continue
+                }
+                const childIndent = childLine.search(/\S|$/)
+                if (childIndent <= baseIndent) {
+                    break
+                }
+                const match = childTrimmed.match(/^(file_path|filePath|path|map_id|mapId|id)\s*:\s*(.+)$/i)
+                if (match) {
+                    if (this._normalizeScalar(match[2]) !== undefined) {
+                        return true
+                    }
+                }
+            }
+
+            break
+        }
+
+        return false
+    }
+
+    private _normalizeScalar(rawValue: string): string | undefined {
+        if (typeof rawValue !== 'string') {
+            return undefined
+        }
+        let normalized = rawValue.trim()
+        if (normalized.length === 0) {
+            return undefined
+        }
+        normalized = normalized.replace(/[,'"}\]]+$/g, '').trim()
+        if (normalized.startsWith("\"") && normalized.endsWith("\"")) {
+            normalized = normalized.slice(1, -1)
+        } else if (normalized.startsWith("'") && normalized.endsWith("'")) {
+            normalized = normalized.slice(1, -1)
+        }
+        normalized = normalized.trim()
+        if (normalized.length === 0) {
+            return undefined
+        }
+        const lower = normalized.toLowerCase()
+        if (lower === 'null' || lower === 'none' || lower === 'undefined') {
+            return undefined
+        }
+        return normalized
+    }
+
     async _fetchAllAgentStatusAndPrompt(time?: Time) {
         if (this.expID === undefined) {
             return
@@ -144,6 +382,9 @@ export class ReplayStore {
                 url += `?day=${time.day}&t=${time.t}`
             }
             const res = await fetchCustom(url)
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`)
+            }
             const data = await res.json()
             const agentStatuses = data.data as AgentStatus[]
             // if (agentStatuses.length > 0) {
@@ -190,7 +431,8 @@ export class ReplayStore {
                 }
             })
         } catch (err) {
-            message.error(`Failed to fetch data: ${JSON.stringify(err)}`, 3);
+            const errorMessage = err instanceof Error ? err.message : JSON.stringify(err)
+            message.error(`Failed to fetch data: ${errorMessage}`, 3);
             console.error('Failed to fetch data: ', err);
         }
         try {
