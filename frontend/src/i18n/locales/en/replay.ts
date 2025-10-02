@@ -6,6 +6,7 @@ export default {
             agent: "Agent",
             user: "User",
             survey: "Survey",
+            relationshipGraph: "Relationship Graph",
             metrics: "Metrics"
         },
         survey: {
@@ -26,7 +27,19 @@ export default {
             sentimentAdoption: "Sentiment & Adoption",
             avgSentiment: "Average Sentiment",
             adoptionRate: "Adoption Rate"
+        },
+        relationshipGraph: {
+            title: "Relationship graph",
+            refresh: "Reload graph",
+            error: "Failed to load relationship graph: {{error}}",
+            empty: "Relationship graph is not available."
         }
+    },
+    relationshipLayout: {
+        toggleGraph: "Toggle Relationship Graph",
+        resetLayout: "Back to Default Layout",
+        loading: "Loading relationship graph…",
+        error: "Unable to load relationship graph."
     },
     infoPanel: {
         title: "Agent Information",

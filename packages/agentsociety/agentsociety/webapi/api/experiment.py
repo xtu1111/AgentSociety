@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterable
 import csv
 import io
 import json
@@ -7,11 +8,14 @@ import math
 import uuid
 import zipfile
 import base64
-from typing import List, cast, Dict, Tuple, Any
+from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from bokeh.document import Document
+from bokeh.embed import components
+from bokeh.resources import CDN
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from agentsociety.configs.exp import WorkflowType
@@ -34,6 +38,7 @@ from ..models.experiment import (
 from ..models.metric import ApiMetric, metric
 from ..models.config import LLMConfig as LLMConfigDB
 from ...commercial.billing.models import ExperimentBillConfig
+from ..relationship_graph_renderer import AgentRelationshipGraphRenderer
 from .const import DEMO_USER_ID
 from .timezone import ensure_timezone_aware
 from ...llm import LLM, LLMConfig as RealLLMConfig
@@ -190,6 +195,609 @@ async def get_experiment_by_id(
         exp.updated_at = ensure_timezone_aware(exp.updated_at)
         return ApiResponseWrapper(data=exp)
 
+
+async def _build_relationship_graph_payload(
+    request: Request,
+    exp_id: uuid.UUID,
+) -> Dict[str, Any]:
+    """Construct the relationship graph payload for the given experiment."""
+
+    status_rows: List[Any] = []
+
+    async with request.app.state.get_db() as db:
+        db = cast(AsyncSession, db)
+        experiment = await _find_started_experiment_by_id(request, db, exp_id)
+
+        profile_table, _ = agent_profile(experiment.agent_profile_tablename)
+        profile_stmt = select(
+            profile_table.c.id,
+            profile_table.c.name,
+            profile_table.c.profile,
+        )
+        profile_result = await db.execute(profile_stmt)
+        rows = profile_result.all()
+
+        status_table, _ = agent_status(experiment.agent_status_tablename)
+        status_stmt = (
+            select(
+                status_table.c.id,
+                status_table.c.status,
+                status_table.c.day,
+                status_table.c.t,
+                status_table.c.created_at,
+            )
+            .order_by(
+                status_table.c.id,
+                status_table.c.day.desc(),
+                status_table.c.t.desc(),
+                status_table.c.created_at.desc(),
+            )
+        )
+        status_result = await db.execute(status_stmt)
+        status_rows = status_result.all()
+
+    relationship_keys = ("connections", "relationships", "links", "edges", "social_network")
+    relationship_key_set = {key.lower() for key in relationship_keys}
+
+    source_keys = (
+        "source",
+        "source_id",
+        "from",
+        "from_id",
+        "agent",
+        "agent_id",
+        "id",
+        "name",
+    )
+    target_keys = (
+        "target",
+        "target_id",
+        "to",
+        "to_id",
+        "friend",
+        "friend_id",
+        "agent",
+        "agent_id",
+        "id",
+        "name",
+    )
+    strength_keys = (
+        "strength",
+        "weight",
+        "relationship_strength",
+        "value",
+        "score",
+        "intimacy",
+        "closeness",
+    )
+
+    source_detection_keys = (
+        "source",
+        "source_id",
+        "from",
+        "from_id",
+        "agent",
+        "agent_id",
+    )
+    target_detection_keys = (
+        "target",
+        "target_id",
+        "to",
+        "to_id",
+        "friend",
+        "friend_id",
+        "agent",
+        "agent_id",
+    )
+
+    source_aliases = {key.lower() for key in source_detection_keys}
+    target_aliases = {key.lower() for key in target_detection_keys}
+    strength_aliases = {key.lower() for key in strength_keys}
+
+    identifier_hint_keys = (
+        "id",
+        "agent_id",
+        "target_id",
+        "source_id",
+        "name",
+        "agent",
+        "target",
+        "source",
+    )
+
+    def _normalise_identifier(value: Any) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Mapping):
+            for candidate in identifier_hint_keys:
+                if candidate in value:
+                    nested = _normalise_identifier(value[candidate])
+                    if nested is not None:
+                        return nested
+            return None
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                nested = _normalise_identifier(item)
+                if nested is not None:
+                    return nested
+            return None
+        return str(value)
+
+    def _coerce_identifier(
+        payload: Mapping[str, Any], keys: Tuple[str, ...], default: Optional[str] = None
+    ) -> Optional[str]:
+        for key in keys:
+            if key not in payload:
+                continue
+            identifier = _normalise_identifier(payload[key])
+            if identifier is not None:
+                return identifier
+        return default
+
+    def _coerce_numeric(value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        if isinstance(value, Mapping):
+            for key in (
+                "value",
+                "strength",
+                "weight",
+                "score",
+                "intimacy",
+                "closeness",
+            ):
+                if key in value:
+                    numeric = _coerce_numeric(value[key])
+                    if numeric is not None:
+                        return numeric
+            return None
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                numeric = _coerce_numeric(item)
+                if numeric is not None:
+                    return numeric
+        return None
+
+    def _extract_strength(payload: Mapping[str, Any]) -> Optional[float]:
+        for key in strength_keys:
+            if key in payload:
+                numeric = _coerce_numeric(payload[key])
+                if numeric is not None:
+                    return numeric
+        return None
+
+    def _has_identifier(payload: Mapping[str, Any], keys: Tuple[str, ...]) -> bool:
+        for key in keys:
+            if key in payload and _normalise_identifier(payload[key]) is not None:
+                return True
+        return False
+
+    def _mapping_represents_edge(
+        mapping: Mapping[str, Any], default_source: Optional[str]
+    ) -> bool:
+        lowered_keys = {str(key).lower() for key in mapping.keys()}
+        has_target = any(candidate in lowered_keys for candidate in target_aliases)
+        if not has_target and (
+            {"name", "id"} & lowered_keys and strength_aliases & lowered_keys
+        ):
+            has_target = True
+        if not has_target and ("agent" in lowered_keys or "friend" in lowered_keys):
+            has_target = True
+        has_source = any(candidate in lowered_keys for candidate in source_aliases)
+        if not has_source and default_source is not None:
+            has_source = True
+        return has_source and has_target
+
+    def _iter_connection_entries(
+        value: Any, *, default_source: Optional[str] = None
+    ) -> Iterator[MutableMapping[str, Any]]:
+        if isinstance(value, Mapping):
+            if _mapping_represents_edge(value, default_source):
+                payload = dict(value)
+                if (
+                    default_source is not None
+                    and not _has_identifier(payload, source_keys)
+                ):
+                    payload["source"] = default_source
+                yield payload
+                return
+
+            for key, nested in value.items():
+                key_str = str(key)
+                nested_source = default_source or key_str
+
+                if isinstance(nested, Mapping):
+                    if _mapping_represents_edge(nested, nested_source):
+                        payload = dict(nested)
+                        if not _has_identifier(payload, target_keys):
+                            payload["target"] = key_str
+                        if default_source is not None:
+                            if not _has_identifier(payload, source_keys):
+                                payload["source"] = default_source
+                        elif not _has_identifier(payload, source_keys):
+                            payload["source"] = nested_source
+                        yield payload
+                        continue
+
+                if isinstance(nested, Mapping) or (
+                    isinstance(nested, Iterable)
+                    and not isinstance(nested, (str, bytes, bytearray))
+                ):
+                    for candidate in _iter_connection_entries(
+                        nested, default_source=nested_source
+                    ):
+                        payload = dict(candidate)
+                        if not _has_identifier(payload, target_keys):
+                            payload["target"] = key_str
+                        if default_source is not None:
+                            if not _has_identifier(payload, source_keys):
+                                payload["source"] = default_source
+                        elif not _has_identifier(payload, source_keys):
+                            payload["source"] = nested_source
+                        yield payload
+                    continue
+
+                if nested in (None, ""):
+                    continue
+
+                payload: Dict[str, Any] = {"target": key_str}
+                try:
+                    payload["strength"] = float(nested)
+                except (TypeError, ValueError):
+                    payload["strength"] = nested
+                if default_source is not None:
+                    payload["source"] = default_source
+                elif default_source is None:
+                    payload["source"] = nested_source
+                yield payload
+            return
+
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                if isinstance(item, Mapping):
+                    payload = dict(item)
+                    if default_source is not None and not _has_identifier(payload, source_keys):
+                        payload["source"] = default_source
+                    yield payload
+                elif isinstance(item, Iterable) and not isinstance(
+                    item, (str, bytes, bytearray)
+                ):
+                    sequence = list(item)
+                    if not sequence:
+                        continue
+                    payload: Dict[str, Any] = {"target": str(sequence[0])}
+                    if len(sequence) > 1:
+                        payload["strength"] = sequence[1]
+                    if default_source is not None:
+                        payload["source"] = default_source
+                    yield payload
+                elif item not in (None, ""):
+                    payload = {"target": str(item)}
+                    if default_source is not None:
+                        payload["source"] = default_source
+                    yield payload
+            return
+
+        if value not in (None, "") and default_source is not None:
+            yield {"source": default_source, "target": str(value)}
+
+    def _walk_relationship_values(
+        container: Any,
+        *,
+        default_source: Optional[str],
+        visited: Set[int],
+    ) -> Iterator[MutableMapping[str, Any]]:
+        if isinstance(container, Mapping):
+            container_id = id(container)
+            if container_id in visited:
+                return
+            visited.add(container_id)
+
+            if _mapping_represents_edge(container, default_source):
+                yield dict(container)
+                return
+
+            for key, nested in container.items():
+                key_lower = str(key).lower()
+                if key_lower in relationship_key_set:
+                    for entry in _iter_connection_entries(
+                        nested, default_source=default_source
+                    ):
+                        yield dict(entry)
+                else:
+                    yield from _walk_relationship_values(
+                        nested,
+                        default_source=default_source,
+                        visited=visited,
+                    )
+            return
+
+        if isinstance(container, Iterable) and not isinstance(
+            container, (str, bytes, bytearray)
+        ):
+            for item in container:
+                yield from _walk_relationship_values(
+                    item,
+                    default_source=default_source,
+                    visited=visited,
+                )
+
+    def _ingest_relationships(payload: Any, default_source: Optional[str]) -> None:
+        if payload is None:
+            return
+        visited: Set[int] = set()
+        for raw_connection in _walk_relationship_values(
+            payload, default_source=default_source, visited=visited
+        ):
+            connection_payload: MutableMapping[str, Any] = dict(raw_connection)
+
+            source_id = _coerce_identifier(
+                connection_payload, source_keys, default=default_source
+            )
+            target_id = _coerce_identifier(connection_payload, target_keys)
+
+            if source_id is None or target_id is None:
+                continue
+
+            source_id = str(source_id)
+            target_id = str(target_id)
+
+            if source_id == target_id:
+                continue
+
+            strength_value = _extract_strength(connection_payload)
+            if strength_value is None:
+                strength_value = 1.0
+            strength_value = max(0.1, min(float(strength_value), 1.0))
+
+            normalised_edge: Dict[str, Any] = dict(connection_payload)
+            normalised_edge["source"] = source_id
+            normalised_edge["target"] = target_id
+            normalised_edge["strength"] = strength_value
+            normalised_edge["weight"] = strength_value
+
+            key = tuple(sorted((source_id, target_id)))
+            existing = edge_map.get(key)
+            existing_strength = (
+                float(existing.get("strength", 0.0)) if existing else 0.0
+            )
+
+            if existing is None or strength_value > existing_strength:
+                edge_map[key] = normalised_edge
+            elif math.isclose(strength_value, existing_strength):
+                merged_edge = dict(existing)
+                for meta_key, meta_value in normalised_edge.items():
+                    if meta_key in {"source", "target", "strength", "weight"}:
+                        continue
+                    if merged_edge.get(meta_key) in (None, "") and meta_value not in (None, ""):
+                        merged_edge[meta_key] = meta_value
+                edge_map[key] = merged_edge
+
+    latest_status_map: Dict[str, Any] = {}
+    status_alias_map: Dict[str, str] = {}
+    for status_row in status_rows:
+        agent_id = getattr(status_row, "id", None)
+        if agent_id is None:
+            continue
+        key = str(agent_id)
+        if key in latest_status_map:
+            continue
+        payload = getattr(status_row, "status", None)
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:  # pragma: no cover - defensive parsing
+                continue
+        if payload is None:
+            continue
+        if isinstance(payload, Mapping):
+            payload = dict(payload)
+        latest_status_map[key] = payload
+
+        if isinstance(payload, Mapping):
+            alias_candidates: List[str] = []
+            for candidate in identifier_hint_keys:
+                if candidate in payload:
+                    alias = _normalise_identifier(payload[candidate])
+                    if alias is not None:
+                        alias_candidates.append(alias)
+            nested_status = payload.get("status")
+            if isinstance(nested_status, Mapping):
+                for candidate in identifier_hint_keys:
+                    if candidate in nested_status:
+                        alias = _normalise_identifier(nested_status[candidate])
+                        if alias is not None:
+                            alias_candidates.append(alias)
+
+            for alias in alias_candidates:
+                alias_key = str(alias)
+                if alias_key not in latest_status_map and alias_key not in status_alias_map:
+                    status_alias_map[alias_key] = key
+
+    named_agents: Dict[str, Dict[str, Any]] = {}
+    ordered_agent_ids: List[str] = []
+    anonymous_agents: List[Dict[str, Any]] = []
+    edge_map: Dict[Tuple[str, str], MutableMapping[str, Any]] = {}
+    consumed_status_canonical: Set[str] = set()
+
+    for row in rows:
+        profile_data = row.profile
+        if isinstance(profile_data, str):
+            try:
+                profile_data = json.loads(profile_data)
+            except Exception:  # pragma: no cover - defensive parsing
+                profile_data = {}
+        if not isinstance(profile_data, Mapping):
+            continue
+
+        agent_entry: Dict[str, Any] = dict(profile_data)
+
+        if row.name and "name" not in agent_entry:
+            agent_entry["name"] = row.name
+
+        if agent_entry.get("name") is not None:
+            agent_entry["name"] = str(agent_entry["name"])
+
+        identifier = agent_entry.get("id")
+        if identifier is None and row.id is not None:
+            identifier = row.id
+
+        agent_identifier = _normalise_identifier(identifier)
+        if agent_identifier is not None:
+            agent_entry["id"] = agent_identifier
+        elif agent_entry.get("id") is not None:
+            agent_entry["id"] = str(agent_entry["id"])
+
+        if agent_identifier is None and agent_entry.get("name") is not None:
+            agent_identifier = str(agent_entry["name"])
+
+        status_lookup_keys: List[str] = []
+        if row.id is not None:
+            status_lookup_keys.append(str(row.id))
+        if agent_identifier is not None:
+            candidate = str(agent_identifier)
+            if candidate not in status_lookup_keys:
+                status_lookup_keys.append(candidate)
+
+        status_payload: Any = None
+        for candidate in status_lookup_keys:
+            payload_key = candidate
+            payload = latest_status_map.get(candidate)
+            if payload is None:
+                alias_target = status_alias_map.get(candidate)
+                if alias_target is not None:
+                    payload_key = alias_target
+                    payload = latest_status_map.get(alias_target)
+            if payload is None:
+                continue
+            status_payload = payload
+            consumed_status_canonical.add(payload_key)
+            break
+
+        if status_payload is not None and "status" not in agent_entry:
+            agent_entry["status"] = status_payload
+
+        if agent_identifier is not None:
+            existing = named_agents.get(agent_identifier)
+            if existing is None:
+                named_agents[agent_identifier] = agent_entry
+                ordered_agent_ids.append(agent_identifier)
+            else:
+                merged = dict(existing)
+                merged.update({k: v for k, v in agent_entry.items() if v is not None})
+                named_agents[agent_identifier] = merged
+        else:
+            anonymous_agents.append(agent_entry)
+
+        default_relationship_source = agent_identifier or (
+            str(row.id) if row.id is not None else None
+        )
+        _ingest_relationships(agent_entry, default_relationship_source)
+
+    for status_key, status_payload in latest_status_map.items():
+        if status_key in consumed_status_canonical:
+            continue
+        _ingest_relationships(status_payload, status_key)
+
+    known_node_ids: Set[str] = set(named_agents.keys())
+    known_node_ids.update(consumed_status_canonical)
+    for node in anonymous_agents:
+        node_id = _normalise_identifier(node.get("id"))
+        if node_id is not None:
+            known_node_ids.add(node_id)
+
+    additional_nodes: Dict[str, Dict[str, Any]] = {}
+    for edge in edge_map.values():
+        for endpoint in (edge["source"], edge["target"]):
+            if endpoint not in known_node_ids:
+                additional_nodes.setdefault(endpoint, {"id": endpoint})
+
+    agents: List[Dict[str, Any]] = [named_agents[key] for key in ordered_agent_ids]
+    agents.extend(anonymous_agents)
+    agents.extend(additional_nodes[endpoint] for endpoint in sorted(additional_nodes))
+
+    edges_payload = [dict(edge_map[key]) for key in sorted(edge_map)]
+    nodes_payload = [dict(agent) for agent in agents]
+
+    return {"nodes": nodes_payload, "edges": edges_payload}
+
+
+@router.get("/experiments/{exp_id}/relationship-graph", response_class=HTMLResponse)
+async def get_experiment_relationship_graph(
+    request: Request,
+    exp_id: uuid.UUID,
+    format: str = Query("html"),
+):
+    payload = await _build_relationship_graph_payload(request, exp_id)
+
+    normalised_format = (format or "html").strip().lower()
+    empty_payload = {"nodes": [], "edges": []}
+
+    nodes = payload.get("nodes") or []
+    if not nodes:
+        if normalised_format == "json":
+            return JSONResponse(content=empty_payload)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No agent profiles available for experiment relationship graph",
+        )
+
+    try:
+        renderer = AgentRelationshipGraphRenderer(payload)
+    except ValueError as exc:
+        if normalised_format == "json":
+            return JSONResponse(content=empty_payload)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    if normalised_format == "json":
+        return JSONResponse(content=renderer.export_graph())
+
+    script, div = components(renderer.figure)
+    resource_html = CDN.render()
+    pointer_style = (
+        "<style>"
+        ".relationship-graph-figure .bk-canvas-events{cursor:pointer;}"
+        "</style>"
+    )
+    html = "\n".join(part for part in (resource_html, pointer_style, script, div) if part)
+    return HTMLResponse(content=html)
+
+@router.get("/experiments/{exp_id}/relationship-edges")
+async def get_experiment_relationship_edges(
+    request: Request,
+    exp_id: uuid.UUID,
+) -> JSONResponse:
+    payload = await _build_relationship_graph_payload(request, exp_id)
+    nodes = payload.get("nodes") or []
+    if not nodes:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No agent profiles available for experiment relationship graph",
+        )
+
+    try:
+        renderer = AgentRelationshipGraphRenderer(payload, doc=Document())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return JSONResponse(content=renderer.export_graph())
 
 @router.get("/experiments/{exp_id}/timeline")
 async def get_experiment_status_timeline_by_id(

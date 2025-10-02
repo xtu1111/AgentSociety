@@ -5,14 +5,12 @@ import {
 
 import InfoPanel from "./LeftPanel";
 import { RightPanel } from "./ChatBox";
-import LngLatJump from "./components/LngLatJump";
-import { LngLat } from "./components/type";
-import Deck from "./Deck";
 import { useParams } from "react-router-dom";
 import { store, StoreContext } from "./store";
 import { observer } from 'mobx-react-lite'
 import TimelinePlayer from "./TimelinePlayer";
 import ResultSummary from "./ResultSummary";
+import Deck from "./Deck";
 
 // const IconFont = createFromIconfontCN({
 //     scriptUrl: "//at.alicdn.com/t/font_3397267_y3yy0ckhrj.js",

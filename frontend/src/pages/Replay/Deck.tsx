@@ -1,13 +1,16 @@
-import React, { useContext, useEffect, useState } from 'react';
-import DeckGL from '@deck.gl/react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import DeckGL, { type DeckGLRef } from '@deck.gl/react';
 import { FlyToInterpolator, MapView, MapViewState, type Color } from '@deck.gl/core';
 import { HeatmapLayer, TextLayer, IconLayer, ScatterplotLayer } from 'deck.gl';
 import { Map as MapGL } from 'react-map-gl';
 import tinycolor from "tinycolor2";
-import { LngLat } from './components/type';
+import { Agent } from './components/type';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { observer } from 'mobx-react-lite';
 import { StoreContext } from './store';
+import RelationshipEdgesOverlay from './components/RelationshipEdgesOverlay';
+import RelationshipGraphPanel from './RelationshipGraphPanel';
+import { useTranslation } from 'react-i18next';
 
 // Set your mapbox access token here
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiZmh5ZHJhbGlzayIsImEiOiJja3VzMWc5NXkwb3RnMm5sbnVvd3IydGY0In0.FrwFkYIMpLbU83K9rHSe8w';
@@ -34,15 +37,34 @@ const LAND_USE_NAME = new Map<string, string>([
 ]);
 
 
+interface AgentAnchor {
+    key: string;
+    canonical: string;
+    x: number;
+    y: number;
+    id?: string;
+    name?: string;
+}
+
 const Deck = observer((props: {
     style: React.CSSProperties,
 }) => {
     const store = useContext(StoreContext)
 
+    const { t } = useTranslation('replay');
+    const containerRef = useRef<HTMLDivElement>(null);
+    const deckRef = useRef<DeckGLRef>(null);
     const [curZoom, setCurZoom] = useState(10.5);
     const [hovering, setHovering] = useState(false);
+    const [anchors, setAnchors] = useState<AgentAnchor[]>([]);
+    const anchorsRef = useRef<AgentAnchor[]>([]);
+    const frameRef = useRef<number>();
+    const previousViewStateRef = useRef<MapViewState | null>(null);
 
-    let layers = [];
+    const [layoutMode, setLayoutMode] = useState<'alphabetical' | 'force'>('alphabetical');
+    const showForceToggle = !store.hasMap;
+
+    let layers: any[] = [];
     const showBaseMap = store.hasMap;
 
     // const aoiLayers = props.showAoi ? [new GeoJsonLayer({
@@ -66,9 +88,220 @@ const Deck = observer((props: {
     //     },
     // })] : [];
 
-    const agentList = Array.from(store.agents.values()).filter((agent) =>
-        Number.isFinite(agent.lng) && Number.isFinite(agent.lat)
-    );
+    const allAgentsList = useMemo(() => Array.from(store.agents.values()), [store.agents]);
+
+    const agentList = useMemo<Agent[]>(() => {
+        const list = Array.from(store.agents.values()).filter((agent) =>
+            Number.isFinite(agent.lng) && Number.isFinite(agent.lat)
+        );
+        list.sort((a, b) => {
+            const aKey = a.id != null ? String(a.id) : (a.name ?? "");
+            const bKey = b.id != null ? String(b.id) : (b.name ?? "");
+            return aKey.localeCompare(bKey);
+        });
+        return list;
+    }, [store.agents, store.agents.size]);
+
+    const mapCenter = store.mapCenter;
+    const initialViewState = useMemo<MapViewState>(() => ({
+        longitude: mapCenter.lng,
+        latitude: mapCenter.lat,
+        zoom: 10.5,
+        pitch: 0,
+        bearing: 0,
+    }), [mapCenter.lng, mapCenter.lat]);
+
+    const [deckViewState, setDeckViewState] = useState<MapViewState>(initialViewState);
+
+    useEffect(() => {
+        setDeckViewState(initialViewState);
+    }, [initialViewState]);
+
+    useEffect(() => {
+        setLayoutMode('alphabetical');
+        anchorsRef.current = [];
+        setAnchors([]);
+        setDeckViewState(initialViewState);
+        previousViewStateRef.current = null;
+    }, [store.expID, initialViewState]);
+
+    useEffect(() => {
+        if (!showForceToggle && layoutMode === 'force') {
+            setLayoutMode('alphabetical');
+        }
+    }, [showForceToggle, layoutMode]);
+
+    const positionedAgents = agentList;
+
+    const handleToggleLayout = useCallback(() => {
+        if (!showForceToggle) {
+            return;
+        }
+        setLayoutMode((prev) => {
+            const next = prev === 'force' ? 'alphabetical' : 'force';
+            if (next === 'force') {
+                previousViewStateRef.current = { ...deckViewState };
+            } else {
+                const previous = previousViewStateRef.current;
+                if (previous) {
+                    setDeckViewState(previous);
+                }
+                previousViewStateRef.current = null;
+            }
+            return next;
+        });
+    }, [showForceToggle, deckViewState]);
+
+    const layoutButtonLabel = layoutMode === 'force'
+        ? t('relationshipLayout.resetLayout')
+        : t('relationshipLayout.toggleGraph');
+
+    const scheduleAnchorUpdate = useCallback(() => {
+        if (layoutMode === 'force') {
+            if (anchorsRef.current.length !== 0) {
+                anchorsRef.current = [];
+                setAnchors([]);
+            }
+            return;
+        }
+        if (frameRef.current !== undefined) {
+            return;
+        }
+        frameRef.current = window.requestAnimationFrame(() => {
+            frameRef.current = undefined;
+            const deckInstance = deckRef.current?.deck;
+            const container = containerRef.current;
+            if (!deckInstance || !container) {
+                if (anchorsRef.current.length !== 0) {
+                    anchorsRef.current = [];
+                    setAnchors([]);
+                }
+                return;
+            }
+            const viewports = deckInstance.getViewports();
+            const viewport = viewports && viewports[0];
+            if (!viewport) {
+                return;
+            }
+
+            const nextAnchors: AgentAnchor[] = [];
+            for (const agent of positionedAgents) {
+                const projected = viewport.project([agent.lng, agent.lat]);
+                const [x, y] = projected;
+                if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                    continue;
+                }
+                const canonical = agent.id != null
+                    ? String(agent.id)
+                    : (agent.name ?? "");
+                if (!canonical) {
+                    continue;
+                }
+                nextAnchors.push({
+                    key: canonical,
+                    canonical,
+                    x,
+                    y,
+                    id: agent.id != null ? String(agent.id) : undefined,
+                    name: agent.name || undefined,
+                });
+            }
+            nextAnchors.sort((a, b) => a.key.localeCompare(b.key));
+
+            const prevAnchors = anchorsRef.current;
+            let changed = prevAnchors.length !== nextAnchors.length;
+            if (!changed) {
+                for (let i = 0; i < prevAnchors.length; i += 1) {
+                    const prev = prevAnchors[i];
+                    const next = nextAnchors[i];
+                    if (prev.key !== next.key) {
+                        changed = true;
+                        break;
+                    }
+                    if (Math.abs(prev.x - next.x) > 0.5 || Math.abs(prev.y - next.y) > 0.5) {
+                        changed = true;
+                        break;
+                    }
+                    if (prev.id !== next.id || prev.name !== next.name) {
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (changed) {
+                anchorsRef.current = nextAnchors;
+                setAnchors(nextAnchors);
+            }
+        });
+    }, [layoutMode, positionedAgents]);
+
+    const handleForceNodeSelect = useCallback(({ id, label }: { id?: string; label?: string }) => {
+        const candidates: string[] = [];
+        if (id) {
+            candidates.push(id);
+        }
+        if (label) {
+            candidates.push(label);
+        }
+        for (const candidate of candidates) {
+            if (candidate === undefined || candidate === null) {
+                continue;
+            }
+            const normalized = String(candidate).trim();
+            if (!normalized) {
+                continue;
+            }
+            const numeric = Number(normalized);
+            if (!Number.isNaN(numeric) && store.agents.has(numeric)) {
+                void store.setClickedAgentID(numeric);
+                return;
+            }
+            for (const agent of store.agents.values()) {
+                if (String(agent.id) === normalized || (agent.name && String(agent.name) === normalized)) {
+                    void store.setClickedAgentID(agent.id);
+                    return;
+                }
+            }
+        }
+    }, [store]);
+
+    useEffect(() => {
+        scheduleAnchorUpdate();
+    }, [scheduleAnchorUpdate]);
+
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) {
+            return;
+        }
+        scheduleAnchorUpdate();
+        let resizeObserver: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(() => {
+                scheduleAnchorUpdate();
+            });
+            resizeObserver.observe(container);
+        }
+
+        const handleWindowResize = () => {
+            scheduleAnchorUpdate();
+        };
+        window.addEventListener('resize', handleWindowResize);
+
+        return () => {
+            window.removeEventListener('resize', handleWindowResize);
+            resizeObserver?.disconnect();
+        };
+    }, [scheduleAnchorUpdate]);
+
+    useEffect(() => {
+        return () => {
+            if (frameRef.current !== undefined) {
+                window.cancelAnimationFrame(frameRef.current);
+            }
+        };
+    }, []);
 
     const getSentiment = (status: any): number | undefined => {
         if (status === null || status === undefined) {
@@ -117,7 +350,7 @@ const Deck = observer((props: {
     if (curZoom > 10) {
         const iconLayer = new IconLayer({
             id: 'icon',
-            data: agentList.map((a) => {
+            data: positionedAgents.map((a) => {
                 const profile = a.profile;
                 let avatarUrl = '/icon/agent.png';
                 try {
@@ -174,7 +407,7 @@ const Deck = observer((props: {
 
         const textLayer = new TextLayer({
             id: 'text',
-            data: agentList.map((a) => {
+            data: positionedAgents.map((a) => {
                 if (a.name === "") {
                     return undefined
                 } else {
@@ -210,7 +443,7 @@ const Deck = observer((props: {
         // use point layer
         const pointLayer = new ScatterplotLayer({
             id: 'point',
-            data: agentList.map((a) => {
+            data: positionedAgents.map((a) => {
                 const sentiment = getSentiment(a.status);
                 return {
                     id: a.id,
@@ -233,7 +466,7 @@ const Deck = observer((props: {
     if (store.heatmapKeyInStatus !== undefined) {
         const heatmapLayer = new HeatmapLayer({
             id: 'heatmap',
-            data: agentList.map((a) => {
+            data: positionedAgents.map((a) => {
                 return {
                     position: [a.lng, a.lat],
                     weight: a.status[store.heatmapKeyInStatus] ?? 0,
@@ -248,28 +481,35 @@ const Deck = observer((props: {
         layers = [heatmapLayer, ...layers];
     }
 
-    const mapCenter = store.mapCenter;
+    const baseContainerStyle: React.CSSProperties = {
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        ...props.style,
+    };
 
     const containerStyle = showBaseMap
-        ? props.style
-        : { ...props.style, backgroundColor: '#ffffff' };
+        ? baseContainerStyle
+        : { ...baseContainerStyle, backgroundColor: '#ffffff' };
 
-    return <div style={containerStyle} onContextMenu={evt => evt.preventDefault()}>
+    return <div ref={containerRef} style={containerStyle} onContextMenu={evt => evt.preventDefault()}>
         <DeckGL
+            ref={deckRef}
             initialViewState={{
-                longitude: mapCenter.lng,
-                latitude: mapCenter.lat,
-                zoom: 10.5,
-                pitch: 0,
-                bearing: 0,
+                ...initialViewState,
                 transitionDuration: 2000,
                 transitionInterpolator: new FlyToInterpolator(),
             } as MapViewState}
+            viewState={layoutMode === 'force' ? initialViewState : deckViewState}
             controller
             layers={layers}
             onViewStateChange={({ viewState }) => {
-                const zoom = (viewState as unknown as MapViewState).zoom;
-                setCurZoom(zoom);
+                const nextState = viewState as unknown as MapViewState;
+                setCurZoom(nextState.zoom);
+                if (layoutMode !== 'force') {
+                    setDeckViewState(nextState);
+                }
+                scheduleAnchorUpdate();
             }}
             onHover={(info) => {
                 const { object, coordinate } = info;
@@ -316,6 +556,14 @@ const Deck = observer((props: {
                     }
                 }
             }}
+            onAfterRender={scheduleAnchorUpdate}
+            style={{
+                position: 'absolute',
+                inset: '0',
+                opacity: layoutMode === 'force' ? '0' : '1',
+                pointerEvents: layoutMode === 'force' ? 'none' : 'auto',
+                transition: 'opacity 0.2s ease',
+            }}
         >
             {showBaseMap && (
                 /* @ts-ignore */
@@ -324,6 +572,77 @@ const Deck = observer((props: {
                 </MapView>
             )}
         </DeckGL>
+        <RelationshipGraphPanel
+            experimentId={store.expID}
+            visible={showForceToggle && layoutMode === 'force'}
+            agents={allAgentsList}
+            onNodeSelect={handleForceNodeSelect}
+        />
+        {showForceToggle && (
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 20,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    display: 'flex',
+                    zIndex: 1001,
+                    pointerEvents: 'auto',
+                }}
+            >
+                <button
+                    type="button"
+                    onClick={handleToggleLayout}
+                    style={{
+                        cursor: 'pointer',
+                        padding: '8px 18px',
+                        borderRadius: 9999,
+                        border: '1px solid rgba(148, 163, 184, 0.5)',
+                        backgroundColor: layoutMode === 'force' ? '#E2E8F0' : '#2563EB',
+                        color: layoutMode === 'force' ? '#1F2937' : '#FFFFFF',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        boxShadow: '0 4px 8px rgba(15, 23, 42, 0.18)',
+                        transition: 'background-color 0.2s ease, color 0.2s ease',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {layoutButtonLabel}
+                </button>
+            </div>
+        )}
+        {layoutMode !== 'force' && (
+            <div
+                aria-hidden="true"
+                style={{
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 2,
+                }}
+            >
+                {anchors.map((anchor) => (
+                    <div
+                        key={anchor.key}
+                        className="agent-node"
+                        data-agent-id={anchor.id}
+                        data-agent-name={anchor.name}
+                        data-agent-canonical={anchor.canonical}
+                        style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            width: 0,
+                            height: 0,
+                            transform: `translate(${anchor.x}px, ${anchor.y}px)`,
+                        }}
+                    />
+                ))}
+            </div>
+        )}
+        {layoutMode !== 'force' && (
+            <RelationshipEdgesOverlay experimentId={store.expID} containerRef={containerRef} />
+        )}
     </div>;
 });
 

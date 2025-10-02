@@ -6,6 +6,7 @@ export default {
             agent: "智能体",
             user: "用户",
             survey: "问卷",
+            relationshipGraph: "关系图",
             metrics: "指标"
         },
         survey: {
@@ -26,7 +27,19 @@ export default {
             sentimentAdoption: "情绪与采纳率",
             avgSentiment: "平均情绪",
             adoptionRate: "采纳率"
+        },
+        relationshipGraph: {
+            title: "关系图",
+            refresh: "刷新关系图",
+            error: "关系图加载失败：{{error}}",
+            empty: "暂无关系图数据"
         }
+    },
+    relationshipLayout: {
+        toggleGraph: "切换关系网络视图",
+        resetLayout: "返回默认布局",
+        loading: "正在加载关系图…",
+        error: "关系图加载失败"
     },
     infoPanel: {
         title: "智能体信息",
