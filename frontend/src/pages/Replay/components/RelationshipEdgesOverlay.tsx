@@ -20,12 +20,24 @@ interface RawRelationshipEdge {
     strength?: unknown;
     xs?: unknown;
     ys?: unknown;
+    line_width?: unknown;
+    line_alpha?: unknown;
+}
+
+interface RawRangeMetadata {
+    start?: unknown;
+    end?: unknown;
+    min?: unknown;
+    max?: unknown;
+    span?: unknown;
 }
 
 interface RelationshipEdgesResponse {
     nodes?: RawRelationshipNode[];
     edges?: RawRelationshipEdge[];
     layout?: Record<string, { x?: unknown; y?: unknown }>;
+    x_range?: RawRangeMetadata;
+    y_range?: RawRangeMetadata;
 }
 
 interface RelationshipEdgesOverlayProps {
@@ -36,10 +48,16 @@ interface RelationshipEdgesOverlayProps {
 
 interface DerivedEdge {
     key: string;
-    points: { x: number; y: number }[];
+    start: { x: number; y: number };
+    end: { x: number; y: number };
     width: number;
     opacity: number;
     highlighted: boolean;
+}
+
+interface DerivedGeometry {
+    edges: DerivedEdge[];
+    viewBox: { minX: number; minY: number; width: number; height: number } | null;
 }
 
 interface HighlightEventDetail {
@@ -87,6 +105,34 @@ const parseCoordinateArray = (value: unknown): number[] | undefined => {
         .map((entry) => parseNumeric(entry))
         .filter((entry): entry is number => entry !== undefined);
     return coords.length >= 2 ? coords : undefined;
+};
+
+const parseRangeMetadata = (value: unknown): {
+    start: number;
+    end: number;
+    min?: number;
+    max?: number;
+    span?: number;
+} | undefined => {
+    if (!value || typeof value !== 'object') {
+        return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    const start = parseNumeric(record.start);
+    const end = parseNumeric(record.end);
+    if (start === undefined || end === undefined) {
+        return undefined;
+    }
+    const min = parseNumeric(record.min);
+    const max = parseNumeric(record.max);
+    const span = parseNumeric(record.span);
+    return {
+        start,
+        end,
+        min: min === undefined ? undefined : min,
+        max: max === undefined ? undefined : max,
+        span: span === undefined ? undefined : span,
+    };
 };
 
 const clampStrength = (value: number | undefined): number => {
@@ -223,13 +269,15 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
         };
     }, [active]);
 
-    const derivedEdges = useMemo(() => {
-        if (!active || !payload || viewport.width <= 0 || viewport.height <= 0) {
-            return [] as DerivedEdge[];
-        }
-
+    const geometry = useMemo<DerivedGeometry>(() => {
         const aliasLookup = new Map<string, string>();
-        const layoutLookup = new Map<string, { x: number; y: number }>();
+        const coordinateLookup = new Map<string, { x: number; y: number }>();
+
+        if (!active || !payload) {
+            aliasLookupRef.current = aliasLookup;
+            edgeKeysRef.current = new Set();
+            return { edges: [], viewBox: null };
+        }
 
         (payload.nodes ?? []).forEach((node) => {
             const idToken = normaliseToken(node.id);
@@ -248,21 +296,25 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             const layoutX = parseNumeric(node.x);
             const layoutY = parseNumeric(node.y);
             if (layoutX !== undefined && layoutY !== undefined) {
-                layoutLookup.set(canonical, { x: layoutX, y: layoutY });
+                coordinateLookup.set(canonical, { x: layoutX, y: layoutY });
             }
         });
 
         if (payload.layout) {
-            Object.entries(payload.layout).forEach(([key, value]) => {
-                const x = parseNumeric((value as Record<string, unknown>).x);
-                const y = parseNumeric((value as Record<string, unknown>).y);
+            Object.entries(payload.layout).forEach(([rawKey, value]) => {
+                const canonicalKey = normaliseToken(rawKey) ?? rawKey;
+                aliasLookup.set(canonicalKey, canonicalKey);
+                aliasLookup.set(rawKey, canonicalKey);
+                const record = value as Record<string, unknown>;
+                const x = parseNumeric(record?.x);
+                const y = parseNumeric(record?.y);
                 if (x !== undefined && y !== undefined) {
-                    layoutLookup.set(key, { x, y });
+                    coordinateLookup.set(canonicalKey, { x, y });
                 }
             });
         }
 
-        const edges = (payload.edges ?? []).flatMap((edge) => {
+        const parsedEdges = (payload.edges ?? []).flatMap((edge) => {
             const rawSource = normaliseToken(edge.source);
             const rawTarget = normaliseToken(edge.target);
             if (!rawSource || !rawTarget) {
@@ -273,116 +325,137 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             const strength = clampStrength(parseNumeric(edge.strength));
             const xs = parseCoordinateArray(edge.xs);
             const ys = parseCoordinateArray(edge.ys);
-            return [{ source, target, strength, xs, ys }];
+            const lineWidth = parseNumeric(edge.line_width);
+            const lineAlpha = parseNumeric(edge.line_alpha);
+            return [{
+                source,
+                target,
+                strength,
+                xs,
+                ys,
+                lineWidth,
+                lineAlpha,
+            }];
         });
 
-        aliasLookupRef.current = aliasLookup;
-        edgeKeysRef.current = new Set(edges.map((edge) => makeEdgeKey(edge.source, edge.target)));
+        const xRange = parseRangeMetadata(payload.x_range);
+        const yRange = parseRangeMetadata(payload.y_range);
 
-        let minX = Number.POSITIVE_INFINITY;
-        let maxX = Number.NEGATIVE_INFINITY;
-        let minY = Number.POSITIVE_INFINITY;
-        let maxY = Number.NEGATIVE_INFINITY;
-
-        const includePoint = (x?: number, y?: number) => {
-            if (typeof x !== 'number' || typeof y !== 'number') {
-                return;
-            }
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                return;
-            }
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        };
-
-        layoutLookup.forEach((point) => includePoint(point.x, point.y));
-        edges.forEach((edge) => {
-            if (!edge.xs || !edge.ys) {
-                return;
-            }
-            const limit = Math.min(edge.xs.length, edge.ys.length);
-            if (limit >= 2) {
-                includePoint(edge.xs[0], edge.ys[0]);
-                includePoint(edge.xs[limit - 1], edge.ys[limit - 1]);
-            }
-        });
-
-        const hasGeometry = Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY);
-        if (!hasGeometry) {
-            return [] as DerivedEdge[];
+        if (!xRange || !yRange) {
+            console.warn('RelationshipEdgesOverlay: missing range metadata', {
+                experimentId,
+            });
+            aliasLookupRef.current = aliasLookup;
+            edgeKeysRef.current = new Set();
+            return { edges: [], viewBox: null };
         }
 
-        const padding = Math.max(40, Math.min(viewport.width, viewport.height) * 0.08);
-        const spanX = Math.max(maxX - minX, 1e-6);
-        const spanY = Math.max(maxY - minY, 1e-6);
-        const usableWidth = Math.max(viewport.width - padding * 2, 1);
-        const usableHeight = Math.max(viewport.height - padding * 2, 1);
-
-        const transformPoint = (x: number, y: number) => ({
-            x: padding + ((x - minX) / spanX) * usableWidth,
-            y: padding + ((y - minY) / spanY) * usableHeight,
-        });
-
         const results: DerivedEdge[] = [];
-
-        edges.forEach((edge) => {
-            const key = makeEdgeKey(edge.source, edge.target);
-            const width = 1 + 2.5 * edge.strength;
-            const opacity = Math.max(0, Math.min(0.9, 0.3 + 0.6 * edge.strength));
-            const points: { x: number; y: number }[] = [];
+        parsedEdges.forEach((edge) => {
+            let startX: number | undefined;
+            let startY: number | undefined;
+            let endX: number | undefined;
+            let endY: number | undefined;
 
             if (edge.xs && edge.ys) {
                 const limit = Math.min(edge.xs.length, edge.ys.length);
                 if (limit >= 2) {
-                    const firstX = edge.xs[0];
-                    const firstY = edge.ys[0];
-                    const lastX = edge.xs[limit - 1];
-                    const lastY = edge.ys[limit - 1];
-                    if (typeof firstX === 'number' && typeof firstY === 'number') {
-                        points.push(transformPoint(firstX, firstY));
-                    }
-                    if (typeof lastX === 'number' && typeof lastY === 'number') {
-                        points.push(transformPoint(lastX, lastY));
-                    }
+                    startX = edge.xs[0];
+                    startY = edge.ys[0];
+                    endX = edge.xs[limit - 1];
+                    endY = edge.ys[limit - 1];
                 }
             }
 
-            if (points.length < 2) {
-                const sourceLayout = layoutLookup.get(edge.source);
-                const targetLayout = layoutLookup.get(edge.target);
+            if (
+                startX === undefined
+                || startY === undefined
+                || endX === undefined
+                || endY === undefined
+            ) {
+                const sourceLayout = coordinateLookup.get(edge.source);
+                const targetLayout = coordinateLookup.get(edge.target);
                 if (sourceLayout && targetLayout) {
-                    points.push(transformPoint(sourceLayout.x, sourceLayout.y));
-                    points.push(transformPoint(targetLayout.x, targetLayout.y));
+                    startX = sourceLayout.x;
+                    startY = sourceLayout.y;
+                    endX = targetLayout.x;
+                    endY = targetLayout.y;
                 }
             }
 
-            if (points.length >= 2) {
-                results.push({
-                    key,
-                    points,
-                    width,
-                    opacity,
-                    highlighted: false,
-                });
+            if (
+                startX === undefined
+                || startY === undefined
+                || endX === undefined
+                || endY === undefined
+            ) {
+                return;
             }
+
+            if (
+                !Number.isFinite(startX)
+                || !Number.isFinite(startY)
+                || !Number.isFinite(endX)
+                || !Number.isFinite(endY)
+            ) {
+                return;
+            }
+
+            const baseWidth = edge.lineWidth ?? (1 + 2.5 * edge.strength);
+            const width = Math.max(0.2, baseWidth);
+            const baseOpacity = edge.lineAlpha ?? (0.3 + 0.6 * edge.strength);
+            const opacity = Math.max(0, Math.min(0.95, baseOpacity));
+
+            results.push({
+                key: makeEdgeKey(edge.source, edge.target),
+                start: { x: startX, y: startY },
+                end: { x: endX, y: endY },
+                width,
+                opacity,
+                highlighted: false,
+            });
         });
+
+        const sortedEdges = [...results].sort((a, b) => {
+            const opacityDiff = b.opacity - a.opacity;
+            if (Math.abs(opacityDiff) > 1e-6) {
+                return opacityDiff;
+            }
+            return b.width - a.width;
+        });
+
+        aliasLookupRef.current = aliasLookup;
+        edgeKeysRef.current = new Set(sortedEdges.map((edge) => edge.key));
 
         if (results.length === 0) {
             console.debug('RelationshipEdgesOverlay: no edges to render', {
                 experimentId,
-                edgeCount: edges.length,
+                edgeCount: parsedEdges.length,
+                ranges: { x: xRange, y: yRange },
             });
         } else {
             console.debug('RelationshipEdgesOverlay: rendering edges', {
                 experimentId,
                 edgeCount: results.length,
+                ranges: { x: xRange, y: yRange },
             });
         }
+        const width = Math.max(xRange.end - xRange.start, 1e-6);
+        const height = Math.max(yRange.end - yRange.start, 1e-6);
 
-        return results;
-    }, [payload, viewport, active]);
+        return {
+            edges: sortedEdges,
+            viewBox: {
+                minX: xRange.start,
+                minY: yRange.start,
+                width,
+                height,
+            },
+        };
+    }, [payload, active, experimentId]);
+
+    const derivedEdges = geometry.edges;
+    const viewBox = geometry.viewBox;
 
     const edgesWithHighlight = useMemo(() => derivedEdges.map((edge) => {
         const highlighted = highlightedEdges.current.has(edge.key);
@@ -397,7 +470,13 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
         };
     }), [derivedEdges, version]);
 
-    if (!active || !payload || viewport.width <= 0 || viewport.height <= 0) {
+    if (
+        !active
+        || !payload
+        || viewport.width <= 0
+        || viewport.height <= 0
+        || !viewBox
+    ) {
         return null;
     }
 
@@ -406,7 +485,8 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             className="relationship-edges-overlay"
             width={viewport.width}
             height={viewport.height}
-            viewBox={`0 0 ${Math.max(viewport.width, 1)} ${Math.max(viewport.height, 1)}`}
+            viewBox={`${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`}
+            preserveAspectRatio="none" // [FIX] preserveAspectRatio="none"
             style={{
                 position: 'absolute',
                 inset: 0,
@@ -415,10 +495,12 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             }}
         >
             {edgesWithHighlight.map((edge) => (
-                <polyline
+                <line
                     key={edge.key}
-                    points={edge.points.map((point) => `${point.x},${point.y}`).join(' ')}
-                    fill="none"
+                    x1={edge.start.x}
+                    y1={edge.start.y}
+                    x2={edge.end.x}
+                    y2={edge.end.y}
                     stroke={edge.stroke}
                     strokeWidth={edge.strokeWidth}
                     strokeOpacity={edge.strokeOpacity}

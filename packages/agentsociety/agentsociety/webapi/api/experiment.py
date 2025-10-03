@@ -1019,66 +1019,155 @@ async def _build_relationship_graph_payload(
         edge["weight"] = weight_numeric
         graph.add_edge(source_id, target_id, weight=weight_numeric)
 
+    # --- Improved component-aware layout with packing and isolated ring ---
     if graph.number_of_nodes() > 0:
-        node_count = graph.number_of_nodes()
-        if node_count <= 150:
-            scale_value = 3.2
-        else:
-            scale_value = max(2.2, 3.2 * math.sqrt(150.0 / float(node_count)))
+        rng = random.Random(42)
 
-        try:
-            if node_count <= 40:
-                raw_layout = nx.kamada_kawai_layout(
-                    graph,
-                    weight="weight",
-                    scale=scale_value,
-                    center=(0.0, 0.0),
-                )
-            elif node_count <= 200:
-                density = max(1.0, float(node_count))
-                fr_constant = 1.5 / math.sqrt(density)
-                iterations = max(1000, int(node_count * 5))
-                raw_layout = nx.fruchterman_reingold_layout(
-                    graph,
-                    weight="weight",
-                    seed=42,
-                    k=fr_constant,
-                    iterations=iterations,
-                    scale=scale_value,
-                    center=(0.0, 0.0),
+        # 1) Layout each connected component independently
+        components = [list(comp) for comp in nx.connected_components(graph)]
+        components.sort(key=len)  # small first
+
+        sub_layouts: Dict[str, Tuple[float, float]] = {}
+        component_infos: List[Dict[str, Any]] = []
+
+        for comp_nodes in components:
+            sub = graph.subgraph(comp_nodes).copy()
+            n = len(comp_nodes)
+            if n == 1:
+                # single node → small circle around origin (random angle)
+                ang = rng.random() * 2.0 * math.pi
+                r = 2.5
+                pos = {comp_nodes[0]: (r * math.cos(ang), r * math.sin(ang))}
+            elif n <= 40:
+                try:
+                    pos = nx.kamada_kawai_layout(
+                        sub,
+                        weight="weight",
+                        scale=max(8.0, math.sqrt(n) * 3.0),
+                    )
+                except (ModuleNotFoundError, ImportError):
+                    logging.warning(
+                        "SciPy not available; falling back to Fruchterman-Reingold layout for small component of size %d.",
+                        n,
+                    )
+                    pos = nx.fruchterman_reingold_layout(
+                        sub,
+                        weight="weight",
+                        seed=42,
+                        k=max(5.0, 12.0 / math.sqrt(n)),
+                        iterations=max(1000, int(8 * n)),
+                        scale=max(12.0, math.sqrt(n) * 4.5),
+                    )
+            elif n <= 200:
+                pos = nx.fruchterman_reingold_layout(
+                    sub, weight="weight", seed=42,
+                    k=max(5.0, 12.0 / math.sqrt(n)),
+                    iterations=max(1000, int(8 * n)),
+                    scale=max(12.0, math.sqrt(n) * 4.5),
                 )
             else:
-                density = max(1.0, float(node_count))
-                spring_constant = 3.0 / math.sqrt(density)
-                iterations = max(300, int(node_count * 1.2))
-                raw_layout = nx.spring_layout(
-                    graph,
-                    weight="weight",
-                    seed=42,
-                    k=spring_constant,
-                    iterations=iterations,
-                    scale=scale_value,
-                    center=(0.0, 0.0),
+                pos = nx.spring_layout(
+                    sub, weight="weight", seed=42,
+                    k=max(6.0, 15.0 / math.sqrt(n)),
+                    iterations=max(1500, int(6 * n)),
+                    scale=max(15.0, math.sqrt(n) * 5.0),
                 )
-        except Exception:  # pragma: no cover - safeguard layout generation
-            raw_layout = {node: (0.0, 0.0) for node in graph.nodes}
 
-        xs = [coords[0] for coords in raw_layout.values()] if raw_layout else []
-        ys = [coords[1] for coords in raw_layout.values()] if raw_layout else []
-        if xs and ys:
-            span_x = max(xs) - min(xs)
-            span_y = max(ys) - min(ys)
-            base_span = max(span_x, span_y, 1.0)
-        else:
-            base_span = max(scale_value, 1.0)
+            # center the component and estimate its "radius"
+            xs = [pos[u][0] for u in pos]
+            ys = [pos[u][1] for u in pos]
+            cx = sum(xs) / len(xs) if xs else 0.0
+            cy = sum(ys) / len(ys) if ys else 0.0
+            centered = {u: (pos[u][0] - cx, pos[u][1] - cy) for u in pos}
 
-        rng = random.Random(42)
-        jitter_scale = base_span * 0.03
-        for node_id, coords in list(raw_layout.items()):
-            raw_layout[node_id] = (
-                float(coords[0]) + rng.uniform(-jitter_scale, jitter_scale),
-                float(coords[1]) + rng.uniform(-jitter_scale, jitter_scale),
-            )
+            spanx = (max(xs) - min(xs)) if xs else 0.0
+            spany = (max(ys) - min(ys)) if ys else 0.0
+            diag = math.hypot(spanx, spany) or max(3.5, math.sqrt(n) * 2.2)
+            margin = max(2.5, math.sqrt(n) * 0.9)
+            radius = (diag * 0.75) + margin
+
+            sub_layouts.update(centered)
+            component_infos.append({
+                "nodes": list(comp_nodes),
+                "radius": float(radius),
+            })
+
+        # 2) Pack components using circle repulsion
+        centers: List[List[float]] = [[0.0, 0.0] for _ in component_infos]
+        ccount = len(component_infos)
+        if ccount > 1:
+            max_r = max(info["radius"] for info in component_infos)
+            base = max_r * ccount * 1.6
+            for i in range(ccount):
+                ang = 2.0 * math.pi * i / ccount
+                centers[i] = [base * math.cos(ang), base * math.sin(ang)]
+
+            for _ in range(800):
+                moved = False
+                for i in range(ccount):
+                    ri = component_infos[i]["radius"]
+                    ci = centers[i]
+                    for j in range(i + 1, ccount):
+                        rj = component_infos[j]["radius"]
+                        cj = centers[j]
+                        dx = cj[0] - ci[0]
+                        dy = cj[1] - ci[1]
+                        d = math.hypot(dx, dy)
+                        need = (ri + rj) * 2.2
+                        if d < need:
+                            if d < 1e-6:
+                                ang = rng.random() * 2.0 * math.pi
+                                dx, dy, d = math.cos(ang), math.sin(ang), 1.0
+                            shift = (need - d) * 0.5
+                            ux, uy = dx / d, dy / d
+                            ci[0] -= ux * shift
+                            ci[1] -= uy * shift
+                            cj[0] += ux * shift
+                            cj[1] += uy * shift
+                            moved = True
+                if not moved:
+                    break
+
+        # 3) Push isolated nodes to an outer ring
+        deg = dict(graph.degree())
+        isolated = [n for n, d in deg.items() if d == 0]
+        if isolated:
+            # compute current max extent
+            max_extent = 0.0
+            for idx, info in enumerate(component_infos):
+                cx, cy = centers[idx]
+                max_extent = max(max_extent, math.hypot(cx, cy) + info["radius"])
+            ring = max(10.0, max_extent + 8.0)
+            for i, u in enumerate(sorted(isolated, key=str)):
+                ang = 2.0 * math.pi * i / max(1, len(isolated))
+                sub_layouts[str(u)] = (ring * math.cos(ang), ring * math.sin(ang))
+
+        # 4) Assemble final layout
+        final_layout: Dict[str, Tuple[float, float]] = {}
+        node_to_comp: Dict[str, int] = {}
+        for idx, info in enumerate(component_infos):
+            for u in info["nodes"]:
+                node_to_comp[str(u)] = idx
+
+        for u, (x, y) in sub_layouts.items():
+            idx = node_to_comp.get(str(u))
+            if idx is not None:
+                ox, oy = centers[idx]
+                final_layout[str(u)] = (float(x + ox), float(y + oy))
+            else:
+                final_layout[str(u)] = (float(x), float(y))
+
+        # small jitter to avoid exact overlaps
+        xs = [v[0] for v in final_layout.values()] or [0.0]
+        ys = [v[1] for v in final_layout.values()] or [0.0]
+        span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+        jitter = max(span * 0.004, 0.05)
+        for u in list(final_layout.keys()):
+            jx = (rng.random() * 2.0 - 1.0) * jitter
+            jy = (rng.random() * 2.0 - 1.0) * jitter
+            final_layout[u] = (final_layout[u][0] + jx, final_layout[u][1] + jy)
+
+        raw_layout = final_layout
     else:
         raw_layout = {}
 
@@ -1109,7 +1198,38 @@ async def _build_relationship_graph_payload(
         edge["xs"] = [float(source_position[0]), float(target_position[0])]
         edge["ys"] = [float(source_position[1]), float(target_position[1])]
 
-    return {"nodes": nodes_payload, "edges": edges_payload, "layout": layout_payload}
+    # Compute x_range / y_range with padding
+    xs_all = [coords["x"] for coords in layout_payload.values()] or [0.0]
+    ys_all = [coords["y"] for coords in layout_payload.values()] or [0.0]
+    min_x, max_x = min(xs_all), max(xs_all)
+    min_y, max_y = min(ys_all), max(ys_all)
+    span_x = max(max_x - min_x, 0.0)
+    span_y = max(max_y - min_y, 0.0)
+    pad_x = span_x * 0.35 + 5.0 if span_x >= 1e-6 else 0.5
+    pad_y = span_y * 0.35 + 5.0 if span_y >= 1e-6 else 0.5
+
+    x_range = {
+        "min": float(min_x),
+        "max": float(max_x),
+        "start": float(min_x - pad_x),
+        "end": float(max_x + pad_x),
+        "span": float((max_x + pad_x) - (min_x - pad_x)),
+    }
+    y_range = {
+        "min": float(min_y),
+        "max": float(max_y),
+        "start": float(min_y - pad_y),
+        "end": float(max_y + pad_y),
+        "span": float((max_y + pad_y) - (min_y - pad_y)),
+    }
+
+    return {
+        "nodes": nodes_payload,
+        "edges": edges_payload,
+        "layout": layout_payload,
+        "x_range": x_range,
+        "y_range": y_range,
+    }
 
 
 @router.get("/experiments/{exp_id}/relationship-graph", response_class=HTMLResponse)

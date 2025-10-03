@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import math
 import os
+import random
 import uuid
 from dataclasses import dataclass
 from typing import (
@@ -115,6 +118,8 @@ class AgentRelationshipGraphRenderer:
         flash_count: int = 3,
         flash_interval: float = 0.25,
         enable_rendering: bool = False,
+        layout_algorithm: Optional[str] = None,
+        hide_weak_edges: bool = False,
         **_ignored_layout_params: Any,
     ) -> None:
         self._document: Document = doc or curdoc()
@@ -126,6 +131,19 @@ class AgentRelationshipGraphRenderer:
         self._enable_rendering = enable_rendering
         self._highlight_color = highlight_color
         self._highlight_width_delta = highlight_width_delta if highlight_width_delta > 0 else 1.1
+        self._hide_weak_edges = bool(hide_weak_edges)
+
+        allowed_algorithms = {"spring", "kamada_kawai", "fruchterman"}
+        self._layout_algorithm_choice: Optional[str] = None
+        if layout_algorithm:
+            candidate = layout_algorithm.strip().lower()
+            if candidate in allowed_algorithms:
+                self._layout_algorithm_choice = candidate
+            else:
+                logger.warning(
+                    "Unknown layout_algorithm '%s'; defaulting to automatic selection.",
+                    layout_algorithm,
+                )
 
         if _ignored_layout_params:
             logger.debug(
@@ -157,30 +175,18 @@ class AgentRelationshipGraphRenderer:
         self._build_graph(payload)
 
         layout = self._extract_layout(payload)
-        node_layout: Dict[str, Tuple[float, float]] = {}
-        missing_nodes: List[str] = []
-        for node in self._graph.nodes:
-            coords = layout.get(node)
-            if coords is None:
-                missing_nodes.append(node)
-                coords = (0.0, 0.0)
-            node_layout[node] = coords
-
-        if missing_nodes:
-            logger.warning(
-                "Relationship payload missing coordinates for %d nodes; defaulting to origin.",
-                len(missing_nodes),
-            )
+        node_layout = self._select_layout(layout)
 
         self._layout = node_layout
         self._layout_scale = self._estimate_layout_scale(node_layout)
+        self._range_metadata = self._compute_range_metadata(node_layout)
 
         self.node_source = self._build_node_source(node_layout)
         self.edge_source, self._base_edge_styles = self._build_edge_source()
         self.figure: Optional[Figure] = None
 
         if self._enable_rendering:
-            x_range, y_range = self._compute_plot_ranges(node_layout)
+            x_range, y_range = self._build_plot_ranges(self._range_metadata)
             self.figure = self._build_figure(width, height, x_range, y_range)
             self._attach_renderers()
 
@@ -256,7 +262,25 @@ class AgentRelationshipGraphRenderer:
                 payload["ys"] = [float(v) for v in ys_column[idx]]
             edges.append(payload)
 
-        return {"nodes": nodes, "edges": edges, "layout": layout}
+        range_meta = getattr(self, "_range_metadata", {}) or {}
+        x_range_meta = {
+            key: float(value)
+            for key, value in range_meta.get("x", {}).items()
+            if isinstance(value, (int, float))
+        }
+        y_range_meta = {
+            key: float(value)
+            for key, value in range_meta.get("y", {}).items()
+            if isinstance(value, (int, float))
+        }
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "layout": layout,
+            "x_range": x_range_meta,
+            "y_range": y_range_meta,
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -288,12 +312,17 @@ class AgentRelationshipGraphRenderer:
             source = str(edge["source"])
             target = str(edge["target"])
             strength = max(0.1, min(float(edge.get("strength", 1.0)), 1.0))
+            layout_weight = 1.0 / strength
+            edge_payload = dict(edge)
+            edge_payload["strength"] = strength
             self._graph.add_edge(
                 source,
                 target,
                 strength=strength,
-                weight=strength,
-                data=dict(edge),
+                weight=layout_weight,
+                layout_weight=layout_weight,
+                render_weight=strength,
+                data=edge_payload,
             )
 
     def _extract_layout(self, payload: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
@@ -330,6 +359,33 @@ class AgentRelationshipGraphRenderer:
                     continue
         return layout
 
+    def _select_layout(self, layout_payload: Mapping[str, Tuple[float, float]]) -> Dict[str, Tuple[float, float]]:
+        node_ids = [str(node) for node in self._graph.nodes]
+        if not node_ids:
+            return {}
+
+        provided: Dict[str, Tuple[float, float]] = {}
+        for node_id in node_ids:
+            coords = layout_payload.get(node_id)
+            if coords is None:
+                continue
+            provided[node_id] = (float(coords[0]), float(coords[1]))
+
+        if len(provided) == len(node_ids) and provided:
+            return provided
+
+        if provided and len(provided) < len(node_ids):
+            logger.warning(
+                "Relationship payload missing coordinates for %d nodes; regenerating layout.",
+                len(node_ids) - len(provided),
+            )
+        elif not provided and layout_payload:
+            logger.warning(
+                "Relationship payload layout omitted recognised nodes; generating layout instead."
+            )
+
+        return self._compute_force_directed_layout(initial_positions=provided or None)
+
     def _extract_nodes(
         self,
         payload: Mapping[str, Any],
@@ -364,6 +420,325 @@ class AgentRelationshipGraphRenderer:
             if edges:
                 return edges
         return self._extract_edges_from_nodes(payload)
+
+
+    def _compute_force_directed_layout(
+        self,
+        *,
+        initial_positions: Optional[Mapping[str, Tuple[float, float]]] = None,
+    ) -> Dict[str, Tuple[float, float]]:
+        node_ids = [str(node) for node in self._graph.nodes]
+        node_count = len(node_ids)  # [FIX] ensure node_count defined before use
+        if node_count == 0:
+            return {}
+
+        rng = random.Random(42)
+
+        initial_dict: Dict[str, Tuple[float, float]] = {}
+        if initial_positions:
+            for node, coords in initial_positions.items():
+                try:
+                    initial_dict[str(node)] = (float(coords[0]), float(coords[1]))
+                except (TypeError, ValueError):
+                    continue
+
+        # [FIX] inverse strength weighting keeps weak ties long while detaching very weak ties
+        for _, _, data in self._graph.edges(data=True):
+            strength = max(0.1, min(float(data.get("strength", 1.0)), 1.0))
+            if strength < 0.3:
+                data["weight"] = 0.1
+            else:
+                data["weight"] = 1.0 / (strength + 0.05)
+
+        components = [sorted(component, key=str) for component in nx.connected_components(self._graph)]
+        components.sort(key=lambda comp: (len(comp), [str(node) for node in comp]))
+
+        forced_algorithm = self._layout_algorithm_choice
+        component_infos: List[Dict[str, Any]] = []
+
+        for component_nodes in components:
+            comp_size = len(component_nodes)
+            if comp_size == 0:
+                continue
+
+            subgraph = self._graph.subgraph(component_nodes).copy()
+            component_initial = {
+                node: coords
+                for node, coords in initial_dict.items()
+                if node in component_nodes
+            }
+            fixed_nodes = tuple(component_initial.keys()) if component_initial else None
+
+            algorithm = forced_algorithm
+            if algorithm is None:
+                if comp_size <= 40:
+                    algorithm = "kamada_kawai"
+                elif comp_size <= 200:
+                    algorithm = "fruchterman"
+                else:
+                    algorithm = "spring"
+
+            layout_map: Dict[str, Tuple[float, float]] = {}
+
+            if comp_size == 1:
+                node_id = str(component_nodes[0])
+                position = component_initial.get(node_id)
+                if position is None:
+                    angle = rng.random() * 2.0 * math.pi
+                    radius = 2.5
+                    position = (radius * math.cos(angle), radius * math.sin(angle))
+                layout_map[node_id] = (float(position[0]), float(position[1]))
+            else:
+                if algorithm == "kamada_kawai":
+                    scale = max(8.0, math.sqrt(float(comp_size)) * 3.0)
+                    pos = nx.kamada_kawai_layout(
+                        subgraph,
+                        weight="weight",
+                        pos=component_initial or None,
+                        scale=scale,
+                    )
+                elif algorithm == "fruchterman":
+                    k_value = max(5.0, 12.0 / math.sqrt(float(comp_size)))
+                    iterations = max(5000, 10 * comp_size)
+                    pos = nx.fruchterman_reingold_layout(
+                        subgraph,
+                        weight="weight",
+                        pos=component_initial or None,
+                        fixed=fixed_nodes,
+                        k=k_value,
+                        iterations=iterations,
+                        seed=42,
+                        scale=max(12.0, math.sqrt(float(comp_size)) * 4.5),
+                    )
+                else:
+                    dynamic_k = max(6.0, 15.0 / math.sqrt(float(comp_size)))
+                    iterations = max(6000, 10 * comp_size)
+                    pos = nx.spring_layout(
+                        subgraph,
+                        weight="weight",
+                        pos=component_initial or None,
+                        fixed=fixed_nodes,
+                        k=dynamic_k,
+                        iterations=iterations,
+                        seed=42,
+                        scale=max(15.0, math.sqrt(float(comp_size)) * 5.0),
+                    )
+
+                for node in component_nodes:
+                    key = node
+                    coords = pos.get(key)
+                    if coords is None:
+                        coords = pos.get(str(key))
+                    if coords is None and str(key).isdigit():
+                        coords = pos.get(int(str(key)))
+                    if coords is None:
+                        continue
+                    layout_map[str(node)] = (float(coords[0]), float(coords[1]))
+
+                if len(layout_map) != comp_size:
+                    missing_nodes = [str(node) for node in component_nodes if str(node) not in layout_map]
+                    if missing_nodes:
+                        logger.warning(
+                            "Force-directed layout missing coordinates for nodes %s; applying circular fallback.",
+                            sorted(missing_nodes),
+                        )
+                    radius = max(3.0, math.sqrt(float(comp_size)) * 1.8)
+                    step = (2.0 * math.pi) / float(comp_size)
+                    for index, node in enumerate(component_nodes):
+                        angle = step * index
+                        layout_map.setdefault(
+                            str(node),
+                            (
+                                radius * math.cos(angle),
+                                radius * math.sin(angle),
+                            ),
+                        )
+
+            if not layout_map:
+                continue
+
+            xs = [coords[0] for coords in layout_map.values()]
+            ys = [coords[1] for coords in layout_map.values()]
+            centroid_x = sum(xs) / len(xs) if xs else 0.0
+            centroid_y = sum(ys) / len(ys) if ys else 0.0
+
+            centred_layout: Dict[str, Tuple[float, float]] = {}
+            min_x = float("inf")
+            max_x = float("-inf")
+            min_y = float("inf")
+            max_y = float("-inf")
+            for node_id, (x_val, y_val) in layout_map.items():
+                cx = float(x_val) - centroid_x
+                cy = float(y_val) - centroid_y
+                centred_layout[node_id] = (cx, cy)
+                min_x = min(min_x, cx)
+                max_x = max(max_x, cx)
+                min_y = min(min_y, cy)
+                max_y = max(max_y, cy)
+
+            span_x = max_x - min_x if math.isfinite(min_x) and math.isfinite(max_x) else 0.0
+            span_y = max_y - min_y if math.isfinite(min_y) and math.isfinite(max_y) else 0.0
+            diagonal = math.hypot(span_x, span_y)
+            fallback_span = max(3.5, math.sqrt(float(comp_size)) * 2.2)
+            if diagonal < 1e-6:
+                diagonal = fallback_span
+            margin = max(2.5, math.sqrt(float(comp_size)) * 0.9)
+            radius = (diagonal * 0.5 * 1.5) + margin  # [FEATURE] component packing radius estimate
+
+            is_isolated = subgraph.number_of_edges() == 0
+
+            component_infos.append(
+                {
+                    "nodes": [str(node) for node in component_nodes],
+                    "layout": centred_layout,
+                    "size": comp_size,
+                    "radius": max(radius, fallback_span * 0.5),
+                    "span_x": span_x if span_x > 0 else fallback_span,
+                    "span_y": span_y if span_y > 0 else fallback_span,
+                    "isolated": is_isolated,
+                }
+            )
+
+        if not component_infos:
+            return {}
+
+        component_count = len(component_infos)
+        centres: Dict[int, List[float]] = {}
+
+        if component_count == 1:
+            centres[0] = [0.0, 0.0]
+        else:
+            meta_graph = nx.Graph()
+            for index, info in enumerate(component_infos):
+                meta_graph.add_node(index, radius=info["radius"], size=info["size"])
+            for i in range(component_count):
+                for j in range(i + 1, component_count):
+                    weight = 1.0 / (component_infos[i]["radius"] + component_infos[j]["radius"] + 1.0)
+                    meta_graph.add_edge(i, j, weight=weight)
+
+            initial_positions_meta: Dict[int, Tuple[float, float]] = {}
+            max_radius = max(info["radius"] for info in component_infos)
+            circle_radius = max_radius * max(component_count, 1) * 1.6
+            for index in range(component_count):
+                angle = (2.0 * math.pi * index) / component_count
+                initial_positions_meta[index] = (
+                    circle_radius * math.cos(angle),
+                    circle_radius * math.sin(angle),
+                )
+
+            k_meta = max(6.0, max_radius * 1.8)
+            pos_meta = nx.spring_layout(
+                meta_graph,
+                weight="weight",
+                pos=initial_positions_meta,
+                iterations=1000,
+                seed=42,
+                k=k_meta,
+                scale=circle_radius * 2.5,
+            )
+
+            for index in range(component_count):
+                coords = pos_meta.get(index, (0.0, 0.0))
+                centres[index] = [float(coords[0]), float(coords[1])]
+
+            # [FEATURE] iterative circle repulsion to avoid overlapping components
+            for _ in range(800):
+                adjusted = False
+                for i in range(component_count):
+                    centre_i = centres[i]
+                    radius_i = component_infos[i]["radius"]
+                    for j in range(i + 1, component_count):
+                        centre_j = centres[j]
+                        radius_j = component_infos[j]["radius"]
+                        dx = centre_j[0] - centre_i[0]
+                        dy = centre_j[1] - centre_i[1]
+                        distance = math.hypot(dx, dy)
+                        desired = max((radius_i + radius_j) * 3.5, 1.0)
+                        if distance >= desired:
+                            continue
+                        if distance < 1e-6:
+                            angle = rng.random() * 2.0 * math.pi
+                            dx = math.cos(angle)
+                            dy = math.sin(angle)
+                            distance = 1.0
+                        shift = desired - distance
+                        ux = dx / distance
+                        uy = dy / distance
+                        centre_i[0] -= ux * shift
+                        centre_i[1] -= uy * shift
+                        centre_j[0] += ux * shift
+                        centre_j[1] += uy * shift
+                        adjusted = True
+                if not adjusted:
+                    break
+
+        if component_count > 1:
+            # [FEATURE] keep isolated nodes on an outer ring beyond the largest active component
+            max_extent = 0.0
+            for index, info in enumerate(component_infos):
+                centre = centres.get(index, [0.0, 0.0])
+                extent = math.hypot(centre[0], centre[1]) + info["radius"]
+                if not info["isolated"]:
+                    max_extent = max(max_extent, extent)
+
+            base_ring = max(max_extent + 8.0, 10.0)
+            for index, info in enumerate(component_infos):
+                if not info["isolated"]:
+                    continue
+                centre = centres.setdefault(index, [0.0, 0.0])
+                distance = math.hypot(centre[0], centre[1])
+                desired = max(base_ring * 2.0, info["radius"] * 6.0)
+                if distance < 1e-6:
+                    angle = rng.random() * 2.0 * math.pi
+                    centres[index] = [
+                        desired * math.cos(angle),
+                        desired * math.sin(angle),
+                    ]
+                elif distance < desired:
+                    scale = desired / distance
+                    centres[index][0] *= scale
+                    centres[index][1] *= scale
+
+        final_layout: Dict[str, Tuple[float, float]] = {}
+
+        for index, info in enumerate(component_infos):
+            centre = centres.get(index, [0.0, 0.0])
+            offset_x, offset_y = centre
+            for node_id, coords in info["layout"].items():
+                final_layout[node_id] = (
+                    float(coords[0] + offset_x),
+                    float(coords[1] + offset_y),
+                )
+
+        if not final_layout:
+            return {}
+
+        xs = [coords[0] for coords in final_layout.values()]
+        ys = [coords[1] for coords in final_layout.values()]
+        span_x = max(xs) - min(xs) if xs else 0.0
+        span_y = max(ys) - min(ys) if ys else 0.0
+        global_span = max(span_x, span_y, 1.0)
+        jitter_scale = max(global_span * 0.004, 0.05)
+
+        buckets: Dict[Tuple[int, int], List[str]] = {}
+        quant = max(global_span * 0.002, 0.02)
+        for node_id, coords in final_layout.items():
+            key = (int(math.floor(coords[0] / quant)), int(math.floor(coords[1] / quant)))
+            buckets.setdefault(key, []).append(node_id)
+
+        for nodes in buckets.values():
+            if len(nodes) <= 1:
+                continue
+            for node_id in nodes:
+                angle = rng.random() * 2.0 * math.pi
+                radius = rng.random() * jitter_scale
+                current = final_layout[node_id]
+                final_layout[node_id] = (
+                    float(current[0] + math.cos(angle) * radius),
+                    float(current[1] + math.sin(angle) * radius),
+                )
+
+        return final_layout
 
     def _extract_edges_from_nodes(self, payload: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
         container = payload.get("nodes") or payload.get("agents")
@@ -552,44 +927,102 @@ class AgentRelationshipGraphRenderer:
         sources: List[str] = []
         targets: List[str] = []
 
-        for u, v, data in self._graph.edges(data=True):
-            raw = data.get("data") if isinstance(data, Mapping) else None
-            xs_payload: List[float] = []
-            ys_payload: List[float] = []
-            if isinstance(raw, Mapping):
-                xs_payload = self._coerce_path(raw.get("xs"))
-                ys_payload = self._coerce_path(raw.get("ys"))
-            if not xs_payload or not ys_payload:
-                logger.warning(
-                    "Relationship payload missing geometry for edge %s-%s; rendering disabled.",
-                    u,
-                    v,
-                )
-                xs.append([])
-                ys.append([])
-            else:
-                xs.append([xs_payload[0], xs_payload[-1]])
-                ys.append([ys_payload[0], ys_payload[-1]])
+        self._edge_lookup.clear()
 
-            strength = float(data.get("strength", 1.0))
+        global_span = max(
+            float(self._range_metadata.get("x", {}).get("span", 0.0)),
+            float(self._range_metadata.get("y", {}).get("span", 0.0)),
+            1.0,
+        )
+
+        for u, v, data in self._graph.edges(data=True):
+            source_id = str(u)
+            target_id = str(v)
+            source_coords = self._layout.get(source_id)
+            target_coords = self._layout.get(target_id)
+            if source_coords is None or target_coords is None:
+                logger.warning(
+                    "Skipping relationship edge %s-%s due to missing coordinates.",
+                    source_id,
+                    target_id,
+                )
+                continue
+
+            sx = float(source_coords[0])
+            sy = float(source_coords[1])
+            tx = float(target_coords[0])
+            ty = float(target_coords[1])
+
+            strength = max(0.1, min(float(data.get("strength", 1.0)), 1.0))
+
+            if strength < 0.2 and self._hide_weak_edges:
+                logger.debug(
+                    "Skipping weak relationship edge %s-%s due to hide_weak_edges flag.",
+                    source_id,
+                    target_id,
+                )
+                continue
+
+            edge_length = math.hypot(tx - sx, ty - sy)
+            seed_bytes = f"{source_id}->{target_id}".encode("utf-8")
+            seed = int.from_bytes(hashlib.sha256(seed_bytes).digest()[:8], "big", signed=False)
+            edge_rng = random.Random(seed)
+
+            if strength >= 0.75:
+                xs.append([sx, tx])
+                ys.append([sy, ty])
+            elif strength >= 0.2:
+                jitter_amount = max(edge_length * 0.03, global_span * 0.008)
+                mid_x = (sx + tx) / 2.0
+                mid_y = (sy + ty) / 2.0
+                jitter_x = (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                jitter_y = (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                xs.append([sx, mid_x + jitter_x, tx])
+                ys.append([sy, mid_y + jitter_y, ty])
+            else:
+                jitter_amount = max(edge_length * 0.05, global_span * 0.015)
+                direction_x = tx - sx
+                direction_y = ty - sy
+                cp1_x = sx + direction_x / 3.0 + (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                cp1_y = sy + direction_y / 3.0 + (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                cp2_x = sx + (direction_x * 2.0 / 3.0) + (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                cp2_y = sy + (direction_y * 2.0 / 3.0) + (edge_rng.random() * 2.0 - 1.0) * jitter_amount
+                xs.append([sx, cp1_x, cp2_x, tx])
+                ys.append([sy, cp1_y, cp2_y, ty])
+
             strengths.append(strength)
-            weights.append(float(data.get("weight", strength)))
+            weights.append(float(data.get("render_weight", strength)))
+
+            raw = data.get("data") if isinstance(data, Mapping) else None
             base_width = 1.0 + 2.5 * strength
-            base_alpha = max(0.0, min(0.9, 0.3 + 0.6 * strength))
+            base_alpha = max(0.0, min(0.95, 0.3 + 0.6 * strength))
             if isinstance(raw, Mapping):
                 try:
-                    base_width = float(raw.get("line_width", base_width))
+                    candidate_width = float(raw.get("line_width", base_width))
+                    base_width = candidate_width
                 except (TypeError, ValueError):
-                    base_width = 1.0 + 2.5 * strength
+                    pass
                 try:
-                    base_alpha = float(raw.get("line_alpha", base_alpha))
+                    candidate_alpha = float(raw.get("line_alpha", base_alpha))
+                    base_alpha = candidate_alpha
                 except (TypeError, ValueError):
-                    base_alpha = max(0.0, min(0.9, 0.3 + 0.6 * strength))
+                    pass
+
+            if strength >= 0.75:
+                base_width = max(base_width, 3.0)
+                base_alpha = min(0.95, max(base_alpha, 0.7))
+            elif strength >= 0.2:
+                base_width = min(max(base_width, 1.0), 2.5)
+                base_alpha = min(0.6, max(base_alpha, 0.3))
+            else:
+                base_width = min(0.8, max(base_width, 0.2))
+                base_alpha = min(0.1, max(base_alpha, 0.02))
+
             widths.append(max(0.2, base_width))
             alphas.append(max(0.0, min(0.95, base_alpha)))
             colors.append("#64748B")
-            sources.append(str(u))
-            targets.append(str(v))
+            sources.append(source_id)
+            targets.append(target_id)
             self._edge_lookup[_EdgeKey(u, v).as_tuple()] = len(xs) - 1
 
         source = ColumnDataSource(
@@ -611,18 +1044,6 @@ class AgentRelationshipGraphRenderer:
             "line_alpha": list(alphas),
             "line_width": list(widths),
         }
-
-    @staticmethod
-    def _coerce_path(values: Any) -> List[float]:
-        if not isinstance(values, Iterable) or isinstance(values, (str, bytes, bytearray)):
-            return []
-        result: List[float] = []
-        for entry in values:
-            try:
-                result.append(float(entry))
-            except (TypeError, ValueError):
-                continue
-        return result
 
     def _build_figure(
         self,
@@ -750,25 +1171,65 @@ class AgentRelationshipGraphRenderer:
 
         return _callback
 
-    def _compute_plot_ranges(
+    def _compute_range_metadata(
         self, layout: Mapping[str, Tuple[float, float]]
-    ) -> Tuple[Range1d, Range1d]:
+    ) -> Dict[str, Dict[str, float]]:
         if not layout:
-            return Range1d(-3.0, 3.0), Range1d(-3.0, 3.0)
-        xs = [coords[0] for coords in layout.values()]
-        ys = [coords[1] for coords in layout.values()]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        span_x = max(max_x - min_x, 1.0)
-        span_y = max(max_y - min_y, 1.0)
-        center_x = (min_x + max_x) / 2.0
-        center_y = (min_y + max_y) / 2.0
-        half_width = max(span_x * 0.6, 1.2)
-        half_height = max(span_y * 0.6, 1.2)
-        return Range1d(center_x - half_width, center_x + half_width), Range1d(
-            center_y - half_height,
-            center_y + half_height,
-        )
+            min_x = -1.0
+            max_x = 1.0
+            min_y = -1.0
+            max_y = 1.0
+        else:
+            xs = [coords[0] for coords in layout.values()]
+            ys = [coords[1] for coords in layout.values()]
+            min_x, max_x = min(xs), max(xs)
+            min_y, max_y = min(ys), max(ys)
+
+        span_x = max(max_x - min_x, 0.0)
+        span_y = max(max_y - min_y, 0.0)
+        padding_x = span_x * 0.35 + 5.0
+        padding_y = span_y * 0.35 + 5.0
+        if span_x < 1e-6:
+            padding_x = 0.5
+        if span_y < 1e-6:
+            padding_y = 0.5
+
+        start_x = min_x - padding_x
+        end_x = max_x + padding_x
+        start_y = min_y - padding_y
+        end_y = max_y + padding_y
+
+        span_with_padding_x = max(end_x - start_x, 1e-6)
+        span_with_padding_y = max(end_y - start_y, 1e-6)
+
+        return {
+            "x": {
+                "min": float(min_x),
+                "max": float(max_x),
+                "start": float(start_x),
+                "end": float(end_x),
+                "span": float(span_with_padding_x),
+            },
+            "y": {
+                "min": float(min_y),
+                "max": float(max_y),
+                "start": float(start_y),
+                "end": float(end_y),
+                "span": float(span_with_padding_y),
+            },
+        }
+
+    @staticmethod
+    def _build_plot_ranges(
+        metadata: Mapping[str, Mapping[str, float]]
+    ) -> Tuple[Range1d, Range1d]:
+        x_meta = metadata.get("x", {})
+        y_meta = metadata.get("y", {})
+        x_start = float(x_meta.get("start", -3.0))
+        x_end = float(x_meta.get("end", 3.0))
+        y_start = float(y_meta.get("start", -3.0))
+        y_end = float(y_meta.get("end", 3.0))
+        return Range1d(x_start, x_end), Range1d(y_start, y_end)
 
     @staticmethod
     def _estimate_layout_scale(layout: Mapping[str, Tuple[float, float]]) -> float:
