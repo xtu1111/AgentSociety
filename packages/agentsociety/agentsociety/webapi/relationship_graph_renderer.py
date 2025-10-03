@@ -1,23 +1,4 @@
-"""Interactive agent relationship graph renderer.
-
-This module exposes :class:`AgentRelationshipGraphRenderer`, a small helper that
-builds a Bokeh force-directed style network visualization from flexible JSON
-payloads.  It keeps two :class:`~bokeh.models.ColumnDataSource` instances for
-nodes and edges respectively so that the figure can be updated incrementally
-without being re-rendered from scratch.
-
-The renderer already supported the following features before this change:
-
-* Loading graph data from JSON dictionaries/strings/files with at least the
-  ``source``/``target``/``strength`` edge keys.
-* Building a `networkx.spring_layout` based layout for agents.
-* Updating node colours externally (typically driven by agent emotion state).
-* Falling back to a blank background when no map tile is supplied.
-
-This file extends that behaviour with a flashing/highlighting animation for
-edges, driven entirely from Python so that backend events (for example new
-conversations) can trigger highlights without re-creating the figure.
-"""
+"""Interactive agent relationship graph renderer."""
 
 from __future__ import annotations
 
@@ -36,6 +17,7 @@ from typing import (
     Mapping,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
 )
 
@@ -45,67 +27,81 @@ from bokeh.io import curdoc
 from bokeh.models import ColumnDataSource, HoverTool, Range1d, TapTool, CustomJS
 from bokeh.plotting import figure
 
-if TYPE_CHECKING:  # pragma: no cover - imported for typing only
+if TYPE_CHECKING:  # pragma: no cover
     from bokeh.plotting import Figure
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Helper dataclasses
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class _EdgeKey:
-    """Immutable helper describing an undirected edge.
-
-    Edges are treated as undirected for the highlight feature – the edge between
-    Alice and Bob should be identical to the edge between Bob and Alice.
-    """
-
     source: str
     target: str
 
-    def __post_init__(self) -> None:  # pragma: no cover - dataclass hook
-        # Normalize case and strip whitespace to make lookups forgiving.
+    def __post_init__(self) -> None:  # pragma: no cover
         object.__setattr__(self, "source", str(self.source).strip())
         object.__setattr__(self, "target", str(self.target).strip())
 
     def as_tuple(self) -> Tuple[str, str]:
-        s, t = sorted((self.source, self.target))
-        return s, t
-
-
-# ---------------------------------------------------------------------------
-# Renderer implementation
-# ---------------------------------------------------------------------------
+        a, b = sorted((self.source, self.target))
+        return a, b
 
 
 class AgentRelationshipGraphRenderer:
-    """Render and manage an interactive agent relationship graph.
+    """Render an interactive relationship graph using backend supplied geometry."""
 
-    Parameters
-    ----------
-    graph_data:
-        A JSON-compatible mapping, JSON string or path pointing to a JSON file
-        describing the graph.  The structure is intentionally flexible – any
-        object containing an iterable of edges with ``source``/``target`` and an
-        optional ``strength`` field will work.  Nodes are inferred from edge
-        endpoints when the input does not include them explicitly.
-    doc:
-        The Bokeh :class:`~bokeh.document.Document` that should own the figure.
-        Defaults to :func:`~bokeh.io.curdoc` when omitted.
-    width, height:
-        Figure size in CSS pixels.
-    highlight_color:
-        Colour used while flashing an active edge.
-    highlight_width_delta:
-        Additional line width added to the base width when highlighting an edge.
-    flash_count:
-        Number of on/off flashes to perform for every activation.
-    flash_interval:
-        Interval between flashes in seconds.
-    """
+    _RELATIONSHIP_CONTAINER_KEYS: Tuple[str, ...] = (
+        "edges",
+        "relationships",
+        "connections",
+        "links",
+        "social_network",
+        "friends",
+        "friendships",
+        "friend_list",
+        "friend_ids",
+        "contacts",
+        "contact_list",
+        "connections_list",
+        "connection_map",
+        "relationship_map",
+        "relationship_list",
+        "neighbors",
+        "neighbors_list",
+        "neighbours",
+        "neighbours_list",
+        "relations",
+        "relations_list",
+        "ties",
+        "network",
+        "network_map",
+        "associates",
+        "companions",
+        "colleagues",
+        "coworkers",
+        "peers",
+        "social_links",
+        "social_graph",
+        "social_ties",
+    )
+
+    _RELATIONSHIP_KEY_SUBSTRINGS: Tuple[str, ...] = (
+        "friend",
+        "contact",
+        "neigh",
+        "relat",
+        "connect",
+        "network",
+        "link",
+        "assoc",
+        "compan",
+        "colleague",
+        "cowork",
+        "peer",
+        "graph",
+        "tie",
+        "bond",
+    )
 
     def __init__(
         self,
@@ -115,9 +111,11 @@ class AgentRelationshipGraphRenderer:
         width: int = 820,
         height: int = 620,
         highlight_color: str = "#ff7f0e",
-        highlight_width_delta: float = 2.5,
+        highlight_width_delta: float = 1.1,
         flash_count: int = 3,
         flash_interval: float = 0.25,
+        enable_rendering: bool = False,
+        **_ignored_layout_params: Any,
     ) -> None:
         self._document: Document = doc or curdoc()
         self._graph = nx.Graph()
@@ -125,18 +123,16 @@ class AgentRelationshipGraphRenderer:
         self._edge_tokens: Dict[Tuple[str, str], str] = {}
         self._flash_count = max(1, flash_count)
         self._flash_interval = max(0.05, flash_interval)
+        self._enable_rendering = enable_rendering
         self._highlight_color = highlight_color
-        self._highlight_width_delta = highlight_width_delta
+        self._highlight_width_delta = highlight_width_delta if highlight_width_delta > 0 else 1.1
 
-        self._source_keys = (
-            "source",
-            "source_id",
-            "from",
-            "from_id",
-            "agent",
-            "agent_id",
-            "id",
-        )
+        if _ignored_layout_params:
+            logger.debug(
+                "Renderer layout parameters are ignored; coordinates must come from the payload."
+            )
+
+        self._source_keys = ("source", "source_id", "from", "from_id", "agent", "agent_id", "id")
         self._target_keys = (
             "target",
             "target_id",
@@ -146,45 +142,53 @@ class AgentRelationshipGraphRenderer:
             "friend_id",
             "agent",
             "agent_id",
+            "contact",
+            "contact_id",
+            "neighbor",
+            "neighbor_id",
+            "neighbour",
+            "neighbour_id",
+            "relation",
+            "relation_id",
         )
+        self._relationship_key_set = {key.lower() for key in self._RELATIONSHIP_CONTAINER_KEYS}
 
-        parsed = self._load_graph_payload(graph_data)
-        self._build_graph(parsed)
+        payload = self._load_graph_payload(graph_data)
+        self._build_graph(payload)
 
-        raw_layout = nx.spring_layout(
-            self._graph,
-            seed=42,
-            weight="weight",
-        )
-        layout = {
-            node: (float(position[0]), float(position[1]))
-            for node, position in raw_layout.items()
-        }
-        self._layout = layout
-        node_source = self._build_node_source(layout)
-        edge_source, base_styles = self._build_edge_source(layout)
-        x_range, y_range = self._compute_plot_ranges(layout)
+        layout = self._extract_layout(payload)
+        node_layout: Dict[str, Tuple[float, float]] = {}
+        missing_nodes: List[str] = []
+        for node in self._graph.nodes:
+            coords = layout.get(node)
+            if coords is None:
+                missing_nodes.append(node)
+                coords = (0.0, 0.0)
+            node_layout[node] = coords
 
-        self.node_source = node_source
-        self.edge_source = edge_source
-        self._base_edge_styles = base_styles
+        if missing_nodes:
+            logger.warning(
+                "Relationship payload missing coordinates for %d nodes; defaulting to origin.",
+                len(missing_nodes),
+            )
 
-        self.figure = self._build_figure(width, height, x_range, y_range)
-        self._attach_renderers()
+        self._layout = node_layout
+        self._layout_scale = self._estimate_layout_scale(node_layout)
+
+        self.node_source = self._build_node_source(node_layout)
+        self.edge_source, self._base_edge_styles = self._build_edge_source()
+        self.figure: Optional[Figure] = None
+
+        if self._enable_rendering:
+            x_range, y_range = self._compute_plot_ranges(node_layout)
+            self.figure = self._build_figure(width, height, x_range, y_range)
+            self._attach_renderers()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def activate_edge(self, source: str, target: str) -> bool:
-        """Flash the edge connecting ``source`` and ``target``.
-
-        Returns ``True`` when an edge exists and the highlight animation was
-        scheduled, ``False`` otherwise.  When multiple events hit the same edge
-        the newest activation supersedes any pending animation to avoid
-        conflicting patches.
-        """
-
         key = _EdgeKey(source, target).as_tuple()
         index = self._edge_lookup.get(key)
         if index is None:
@@ -202,7 +206,6 @@ class AgentRelationshipGraphRenderer:
                 self._make_flash_callback(index, key, token, active), timeout_ms
             )
 
-        # Ensure the last callback always restores the base style exactly.
         reset_timeout = int(total_steps * self._flash_interval * 1000)
         self._document.add_timeout_callback(
             self._make_flash_callback(index, key, token, False, final=True),
@@ -211,91 +214,46 @@ class AgentRelationshipGraphRenderer:
         return True
 
     def export_graph(self) -> Dict[str, Any]:
-        """Serialise the graph nodes, edges and spring-layout coordinates."""
-
-        node_data = self.node_source.data
         nodes: List[Dict[str, Any]] = []
         layout: Dict[str, Dict[str, float]] = {}
-
-        for index, node_id in enumerate(node_data.get("id", [])):
-            x_coord = float(node_data["x"][index])
-            y_coord = float(node_data["y"][index])
-
+        node_data = self.node_source.data
+        for idx, node_id in enumerate(node_data.get("id", [])):
             payload: Dict[str, Any] = {
                 "id": node_id,
-                "x": x_coord,
-                "y": y_coord,
-                "color": node_data["fill_color"][index],
-                "border_color": node_data["line_color"][index],
-                "alpha": float(node_data["alpha"][index]),
-                "size": float(node_data["size"][index]),
+                "x": float(node_data["x"][idx]),
+                "y": float(node_data["y"][idx]),
+                "color": node_data["fill_color"][idx],
+                "border_color": node_data["line_color"][idx],
+                "alpha": float(node_data["alpha"][idx]),
+                "size": float(node_data["size"][idx]),
             }
-
             label_column = node_data.get("label")
-            if label_column is not None and index < len(label_column):
-                payload["label"] = label_column[index]
-
+            if label_column is not None and idx < len(label_column):
+                payload["label"] = label_column[idx]
             graph_attributes = self._graph.nodes.get(node_id, {})
             for key, value in graph_attributes.items():
                 if key in payload:
                     continue
                 payload[key] = self._serialise_json(value)
-
             nodes.append(payload)
-            layout[node_id] = {"x": x_coord, "y": y_coord}
+            layout[node_id] = {"x": float(payload["x"]), "y": float(payload["y"])}
 
-        edge_data = self.edge_source.data
         edges: List[Dict[str, Any]] = []
+        edge_data = self.edge_source.data
         xs_column = edge_data.get("xs", [])
         ys_column = edge_data.get("ys", [])
-
-        for index, source in enumerate(edge_data.get("source", [])):
-            target = edge_data["target"][index]
-            payload: Dict[str, Any] = {
+        for idx, source in enumerate(edge_data.get("source", [])):
+            target = edge_data["target"][idx]
+            payload = {
                 "source": source,
                 "target": target,
-                "strength": float(edge_data["strength"][index]),
+                "strength": float(edge_data["strength"][idx]),
+                "line_width": float(edge_data["line_width"][idx]),
+                "line_alpha": float(edge_data["line_alpha"][idx]),
             }
-
-            if index < len(xs_column) and index < len(ys_column):
-                try:
-                    path_xs = [float(coord) for coord in xs_column[index]]
-                    path_ys = [float(coord) for coord in ys_column[index]]
-                except (TypeError, ValueError):
-                    path_xs, path_ys = [], []
-                payload["xs"] = path_xs
-                payload["ys"] = path_ys
-                if len(path_xs) >= 2 and len(path_ys) >= 2:
-                    payload["x0"], payload["x1"] = path_xs[0], path_xs[-1]
-                    payload["y0"], payload["y1"] = path_ys[0], path_ys[-1]
-
-            weight_value: Optional[float] = None
-            weights_column = edge_data.get("weight")
-            if weights_column is not None:
-                try:
-                    weight_value = float(weights_column[index])
-                except (TypeError, ValueError, KeyError, IndexError):
-                    weight_value = None
-
-            attributes = self._graph.get_edge_data(source, target, {})
-            if weight_value is None:
-                raw_weight = attributes.get("weight")
-                if raw_weight is not None:
-                    try:
-                        weight_value = float(raw_weight)
-                    except (TypeError, ValueError):
-                        weight_value = None
-
-            if weight_value is None:
-                weight_value = payload["strength"]
-
-            payload["weight"] = weight_value
-            for key, value in attributes.items():
-                if key == "data":
-                    payload[key] = self._serialise_json(value)
-                elif key not in {"strength", "weight"}:
-                    payload.setdefault(key, self._serialise_json(value))
-
+            if idx < len(xs_column) and idx < len(ys_column):
+                payload["xs"] = [float(v) for v in xs_column[idx]]
+                payload["ys"] = [float(v) for v in ys_column[idx]]
             edges.append(payload)
 
         return {"nodes": nodes, "edges": edges, "layout": layout}
@@ -304,47 +262,7 @@ class AgentRelationshipGraphRenderer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _make_flash_callback(
-        self,
-        index: int,
-        key: Tuple[str, str],
-        token: str,
-        active: bool,
-        final: bool = False,
-    ):
-        def _callback() -> None:
-            if self._edge_tokens.get(key) != token:
-                return
-            if final:
-                self._edge_tokens.pop(key, None)
-            self._set_edge_state(index, active)
-
-        return _callback
-
-    def _set_edge_state(self, index: int, active: bool) -> None:
-        base = self._base_edge_styles
-        color = (
-            self._highlight_color if active else base["line_color"][index]
-        )
-        alpha = 0.9 if active else base["line_alpha"][index]
-        width = (
-            base["line_width"][index] + self._highlight_width_delta
-            if active
-            else base["line_width"][index]
-        )
-
-        patch = {
-            "line_color": [(index, color)],
-            "line_alpha": [(index, alpha)],
-            "line_width": [(index, width)],
-        }
-        self._document.add_next_tick_callback(
-            lambda patch=patch: self.edge_source.patch(patch)
-        )
-
-    def _load_graph_payload(
-        self, graph_data: Mapping[str, Any] | str
-    ) -> Mapping[str, Any]:
+    def _load_graph_payload(self, graph_data: Mapping[str, Any] | str) -> Mapping[str, Any]:
         if isinstance(graph_data, Mapping):
             return graph_data
         if isinstance(graph_data, str):
@@ -353,12 +271,9 @@ class AgentRelationshipGraphRenderer:
                     return json.load(handle)
             try:
                 return json.loads(graph_data)
-            except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            except json.JSONDecodeError as exc:  # pragma: no cover
                 raise ValueError("String graph data must be JSON serialisable") from exc
         if isinstance(graph_data, Iterable):
-            # Agent profile uploads are often stored as a bare list of agents.
-            # Treat those as a node container and let the edge extractor infer
-            # the relationship list from embedded "connections" fields.
             return {"nodes": list(graph_data)}
         raise TypeError("graph_data must be a mapping, JSON string or path")
 
@@ -366,300 +281,64 @@ class AgentRelationshipGraphRenderer:
         edges = self._extract_edges(payload)
         nodes = self._extract_nodes(payload, edges)
 
-        for node_id, node_payload in nodes.items():
-            self._graph.add_node(node_id, **node_payload)
+        for node_id, attributes in nodes.items():
+            self._graph.add_node(node_id, **attributes)
 
         for edge in edges:
             source = str(edge["source"])
             target = str(edge["target"])
-            strength = float(edge.get("strength", 1.0))
-            # Clamp strength to the expected [0.1, 1] range so that the spring
-            # layout weighting remains well-behaved even when data sources send
-            # slightly out-of-band values.
-            strength = max(0.1, min(strength, 1.0))
+            strength = max(0.1, min(float(edge.get("strength", 1.0)), 1.0))
             self._graph.add_edge(
                 source,
                 target,
                 strength=strength,
                 weight=strength,
-                data=edge,
+                data=dict(edge),
             )
 
-    def _extract_edges(
-        self, payload: Mapping[str, Any]
-    ) -> List[MutableMapping[str, Any]]:
-        for key in (
-            "edges",
-            "relationships",
-            "connections",
-            "links",
-            "social_network",
-        ):
-            if key in payload and isinstance(payload[key], Iterable):
-                raw_edges = list(self._iter_connection_entries(payload[key]))
-                edges = [
-                    edge
-                    for raw in raw_edges
-                    if isinstance(raw, MutableMapping)
-                    for edge in [self._normalise_edge(raw)]
-                    if edge is not None
-                ]
-                if edges:
-                    break
-        else:
-            edges = []
-
-        if not edges:
-            # Fallback for agent profile schemas where connections live inside
-            # each node entry (``agent["connections"]`` or similar).
-            edges = self._extract_edges_from_nodes(payload)
-
-        return edges
-
-    def _extract_edges_from_nodes(
-        self, payload: Mapping[str, Any]
-    ) -> List[MutableMapping[str, Any]]:
-        node_container = None
-        for key in ("nodes", "agents", "people"):
-            value = payload.get(key)
-            if isinstance(value, Iterable):
-                node_container = value
-                break
-
-        if node_container is None:
-            return []
-
-        dedup: Dict[Tuple[str, str], MutableMapping[str, Any]] = {}
-        for node in node_container:
-            if not isinstance(node, Mapping):
-                continue
-            node_id = (
-                node.get("id")
-                or node.get("name")
-                or node.get("agent")
-                or node.get("agent_id")
-            )
-            if node_id is None:
-                continue
-            node_id = str(node_id)
-
-            for rel_key in (
-                "connections",
-                "relationships",
-                "links",
-                "edges",
-                "social_network",
-            ):
-                maybe_connections = node.get(rel_key)
-                if not isinstance(maybe_connections, Iterable):
+    def _extract_layout(self, payload: Mapping[str, Any]) -> Dict[str, Tuple[float, float]]:
+        layout: Dict[str, Tuple[float, float]] = {}
+        mapping = payload.get("layout")
+        if isinstance(mapping, Mapping):
+            for node_id, coords in mapping.items():
+                if not isinstance(coords, Mapping):
                     continue
-                for rel in self._iter_connection_entries(
-                    maybe_connections, default_source=node_id
-                ):
-                    if not isinstance(rel, MutableMapping):
-                        continue
-
-                    merged = self._normalise_edge(rel, default_source=node_id)
-                    if not merged:
-                        continue
-
-                    key = _EdgeKey(merged["source"], merged["target"]).as_tuple()
-                    # Prefer the strongest relationship if duplicates exist.
-                    existing = dedup.get(key)
-                    if existing is None or float(existing.get("strength", 0.0)) < float(
-                        merged.get("strength", 0.0)
-                    ):
-                        dedup[key] = merged
-
-        return list(dedup.values())
-
-    def _normalise_edge(
-        self,
-        raw: MutableMapping[str, Any],
-        *,
-        default_source: Optional[str] = None,
-    ) -> Optional[MutableMapping[str, Any]]:
-        """Convert arbitrary edge payloads into ``source``/``target`` pairs."""
-
-        source_keys = ["source", "source_id", "from", "from_id"]
-        if default_source is not None:
-            source_keys.extend(["agent", "agent_id", "id"])
-        else:
-            source_keys.extend(["agent", "agent_id"])
-        target_keys = ["target", "target_id", "to", "to_id", "friend", "friend_id", "agent"]
-
-        source = self._coerce_endpoint(raw, source_keys, default=default_source)
-        target = self._coerce_endpoint(raw, target_keys)
-
-        if source is None or target is None:
-            return None
-
-        normalised: MutableMapping[str, Any] = dict(raw)
-        normalised["source"] = source
-        normalised["target"] = target
-        normalised["strength"] = self._coerce_strength(normalised)
-        return normalised
-
-    @staticmethod
-    def _coerce_endpoint(
-        raw: Mapping[str, Any], keys: Iterable[str], *, default: Optional[str] = None
-    ) -> Optional[str]:
-        for key in keys:
-            if key in raw and raw[key] not in (None, ""):
-                return str(raw[key])
-        return str(default) if default is not None else None
-
-    @staticmethod
-    def _coerce_strength(raw: Mapping[str, Any]) -> float:
-        for key in (
-            "strength",
-            "weight",
-            "value",
-            "score",
-            "relationship_strength",
-            "intimacy",
-            "closeness",
-        ):
-            if key in raw and raw[key] not in (None, ""):
+                x_val = coords.get("x")
+                y_val = coords.get("y")
                 try:
-                    return float(raw[key])
+                    if x_val is None or y_val is None:
+                        continue
+                    layout[str(node_id)] = (float(x_val), float(y_val))
                 except (TypeError, ValueError):
                     continue
-        return 1.0
 
-    def _iter_connection_entries(
-        self, value: Any, *, default_source: Optional[str] = None
-    ) -> Iterator[MutableMapping[str, Any]]:
-        """Yield mutable mappings describing edges from flexible containers."""
-
-        if isinstance(value, Mapping):
-            if self._mapping_represents_edge(value, default_source):
-                payload = dict(value)
-                if default_source is not None:
-                    payload.setdefault("source", default_source)
-                yield payload
-                return
-
-            for key, nested in value.items():
-                key_str = str(key)
-                nested_source = default_source or key_str
-
-                if isinstance(nested, Mapping):
-                    if self._mapping_represents_edge(nested, nested_source):
-                        payload = dict(nested)
-                        payload.setdefault("target", key_str)
-                        if default_source is not None:
-                            payload.setdefault("source", default_source)
-                        else:
-                            payload.setdefault("source", nested_source)
-                        yield payload
-                        continue
-
-                if isinstance(nested, Mapping) or (
-                    isinstance(nested, Iterable)
-                    and not isinstance(nested, (str, bytes, bytearray))
-                ):
-                    for candidate in self._iter_connection_entries(
-                        nested, default_source=nested_source
-                    ):
-                        if "target" not in candidate:
-                            candidate["target"] = key_str
-                        if default_source is not None and "source" not in candidate:
-                            candidate["source"] = default_source
-                        elif default_source is None and "source" not in candidate:
-                            candidate["source"] = nested_source
-                        yield candidate
+        nodes = payload.get("nodes")
+        if isinstance(nodes, Iterable):
+            for node in nodes:
+                if not isinstance(node, Mapping):
                     continue
-
-                if nested in (None, ""):
+                node_id = node.get("id") or node.get("name")
+                if node_id is None:
                     continue
-
-                payload: MutableMapping[str, Any] = {"target": key_str}
+                x_val = node.get("x")
+                y_val = node.get("y")
                 try:
-                    payload["strength"] = float(nested)
-                except (TypeError, ValueError):
-                    payload["strength"] = nested
-                if default_source is not None:
-                    payload["source"] = default_source
-                else:
-                    payload["source"] = nested_source
-                yield payload
-            return
-
-        if isinstance(value, Iterable) and not isinstance(
-            value, (str, bytes, bytearray)
-        ):
-            for item in value:
-                if isinstance(item, Mapping):
-                    payload = dict(item)
-                    if default_source is not None:
-                        payload.setdefault("source", default_source)
-                    yield payload
-                elif isinstance(item, Iterable) and not isinstance(
-                    item, (str, bytes, bytearray)
-                ):
-                    sequence = list(item)
-                    if not sequence:
+                    if x_val is None or y_val is None:
                         continue
-                    payload: MutableMapping[str, Any] = {
-                        "target": str(sequence[0])
-                    }
-                    if len(sequence) > 1:
-                        payload["strength"] = sequence[1]
-                    if default_source is not None:
-                        payload["source"] = default_source
-                    yield payload
-                elif item not in (None, ""):
-                    payload = {"target": str(item)}
-                    if default_source is not None:
-                        payload["source"] = default_source
-                    yield payload
-            return
-
-        if value not in (None, "") and default_source is not None:
-            payload = {"source": default_source, "target": str(value)}
-            yield payload
-
-    def _mapping_represents_edge(
-        self, mapping: Mapping[str, Any], default_source: Optional[str]
-    ) -> bool:
-        keys = {str(key).lower() for key in mapping.keys()}
-        has_target = any(candidate in keys for candidate in self._target_keys)
-        if not has_target and "agent" in keys:
-            has_target = True
-        has_source = any(candidate in keys for candidate in self._source_keys)
-        if not has_source and default_source is not None:
-            has_source = True
-        return has_source and has_target
-
-    @staticmethod
-    def _serialise_json(value: Any) -> Any:
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        if isinstance(value, Mapping):
-            return {
-                str(key): AgentRelationshipGraphRenderer._serialise_json(val)
-                for key, val in value.items()
-            }
-        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
-            return [AgentRelationshipGraphRenderer._serialise_json(item) for item in value]
-        return str(value)
+                    layout[str(node_id)] = (float(x_val), float(y_val))
+                except (TypeError, ValueError):
+                    continue
+        return layout
 
     def _extract_nodes(
         self,
         payload: Mapping[str, Any],
-        edges: Iterable[MutableMapping[str, Any]],
+        edges: Sequence[MutableMapping[str, Any]],
     ) -> Dict[str, Dict[str, Any]]:
-        node_container = None
-        for key in ("nodes", "agents", "people"):
-            value = payload.get(key)
-            if isinstance(value, Iterable):
-                node_container = value
-                break
-
         nodes: Dict[str, Dict[str, Any]] = {}
-        if node_container is not None:
-            for raw in node_container:
+        container = payload.get("nodes")
+        if isinstance(container, Iterable):
+            for raw in container:
                 if not isinstance(raw, Mapping):
                     continue
                 node_id = raw.get("id") or raw.get("name") or raw.get("agent")
@@ -669,117 +348,200 @@ class AgentRelationshipGraphRenderer:
 
         for edge in edges:
             for endpoint_key in ("source", "target"):
-                endpoint = str(edge[endpoint_key])
-                nodes.setdefault(endpoint, {"id": endpoint})
+                endpoint = edge.get(endpoint_key)
+                if endpoint is None:
+                    continue
+                node_id = str(endpoint)
+                nodes.setdefault(node_id, {"id": node_id})
         return nodes
 
-    @staticmethod
-    def _resolve_sentiment(payload: Any) -> Optional[float]:
-        if payload is None:
+    def _extract_edges(self, payload: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
+        for key in self._RELATIONSHIP_CONTAINER_KEYS:
+            if key not in payload:
+                continue
+            container = self._maybe_parse_json(payload.get(key))
+            edges = self._normalise_edge_container(container)
+            if edges:
+                return edges
+        return self._extract_edges_from_nodes(payload)
+
+    def _extract_edges_from_nodes(self, payload: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
+        container = payload.get("nodes") or payload.get("agents")
+        if not isinstance(container, Iterable):
+            return []
+        dedup: Dict[Tuple[str, str], MutableMapping[str, Any]] = {}
+        for raw_node in container:
+            if not isinstance(raw_node, Mapping):
+                continue
+            node_id = raw_node.get("id") or raw_node.get("name") or raw_node.get("agent")
+            if node_id is None:
+                continue
+            node_id = str(node_id)
+            for key, value in raw_node.items():
+                key_lower = str(key).lower()
+                if (
+                    key_lower not in self._relationship_key_set
+                    and not any(fragment in key_lower for fragment in self._RELATIONSHIP_KEY_SUBSTRINGS)
+                ):
+                    continue
+                for entry in self._iter_connection_entries(value, default_source=node_id):
+                    edge = self._normalise_edge(entry, default_source=node_id)
+                    if edge is None:
+                        continue
+                    dedup_key = _EdgeKey(edge["source"], edge["target"]).as_tuple()
+                    existing = dedup.get(dedup_key)
+                    if existing is None or float(existing.get("strength", 0.0)) < float(edge.get("strength", 0.0)):
+                        dedup[dedup_key] = edge
+        return list(dedup.values())
+
+    def _normalise_edge(
+        self,
+        raw: MutableMapping[str, Any],
+        *,
+        default_source: Optional[str] = None,
+    ) -> Optional[MutableMapping[str, Any]]:
+        if not isinstance(raw, MutableMapping):
             return None
-        if isinstance(payload, (int, float)) and not isinstance(payload, bool):
-            return float(payload)
-        if isinstance(payload, str):
-            value = payload.strip()
-            if not value:
-                return None
+        source = self._coerce_endpoint(raw, self._source_keys, default=default_source)
+        target = self._coerce_endpoint(raw, self._target_keys)
+        if source is None or target is None:
+            return None
+        normalised = dict(raw)
+        normalised["source"] = source
+        normalised["target"] = target
+        normalised["strength"] = self._coerce_strength(normalised)
+        return normalised
+
+    def _normalise_edge_container(self, container: Any) -> List[MutableMapping[str, Any]]:
+        results: List[MutableMapping[str, Any]] = []
+        for entry in self._iter_connection_entries(container):
+            edge = self._normalise_edge(entry)
+            if edge is None:
+                continue
+            results.append(edge)
+        return results
+
+    def _iter_connection_entries(
+        self,
+        value: Any,
+        *,
+        default_source: Optional[str] = None,
+    ) -> Iterator[MutableMapping[str, Any]]:
+        value = self._maybe_parse_json(value)
+        if isinstance(value, Mapping):
+            if self._mapping_represents_edge(value) and self._coerce_endpoint(
+                value, self._target_keys
+            ):
+                payload = dict(value)
+                if default_source is not None and self._coerce_endpoint(payload, self._source_keys) is None:
+                    payload["source"] = default_source
+                yield payload
+                return
+            for key, nested in value.items():
+                key_lower = str(key).lower()
+                if key_lower in self._relationship_key_set or any(
+                    fragment in key_lower for fragment in self._RELATIONSHIP_KEY_SUBSTRINGS
+                ):
+                    yield from self._iter_connection_entries(nested, default_source=default_source)
+                elif isinstance(nested, Mapping) or (
+                    isinstance(nested, Iterable) and not isinstance(nested, (str, bytes, bytearray))
+                ):
+                    yield from self._iter_connection_entries(nested, default_source=default_source)
+            return
+
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                yield from self._iter_connection_entries(item, default_source=default_source)
+            return
+
+        if value not in (None, "") and default_source is not None:
+            yield {"source": default_source, "target": str(value)}
+
+    def _mapping_represents_edge(self, mapping: Mapping[str, Any]) -> bool:
+        keys = {str(key).lower() for key in mapping.keys()}
+        has_target = any(alias in keys for alias in (key.lower() for key in self._target_keys))
+        has_source = any(alias in keys for alias in (key.lower() for key in self._source_keys))
+        return has_target or (has_source and "strength" in keys)
+
+    @staticmethod
+    def _maybe_parse_json(value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return value
             try:
-                return float(value)
+                return json.loads(stripped)
             except ValueError:
-                try:
-                    parsed = json.loads(value)
-                except Exception:  # pragma: no cover - best effort decoding
-                    return None
-                return AgentRelationshipGraphRenderer._resolve_sentiment(parsed)
-        if isinstance(payload, Mapping):
-            for key in ("sentiment", "status", "value", "score"):
-                if key in payload:
-                    nested = AgentRelationshipGraphRenderer._resolve_sentiment(payload[key])
-                    if nested is not None:
-                        return nested
-            return None
-        if isinstance(payload, Iterable) and not isinstance(payload, (str, bytes, bytearray)):
-            for item in payload:
-                nested = AgentRelationshipGraphRenderer._resolve_sentiment(item)
-                if nested is not None:
-                    return nested
-        return None
+                return value
+        return value
+
+    def _coerce_endpoint(
+        self,
+        payload: Mapping[str, Any],
+        keys: Sequence[str],
+        *,
+        default: Optional[str] = None,
+    ) -> Optional[str]:
+        lowered: Optional[Dict[str, Any]] = None
+        for key in keys:
+            if key in payload:
+                value = payload.get(key)
+                if value is not None:
+                    return str(value)
+            lowered_key = key.lower()
+            if lowered is None:
+                lowered = {str(k).lower(): v for k, v in payload.items()}
+            if lowered_key in lowered and lowered[lowered_key] is not None:
+                return str(lowered[lowered_key])
+        return default
 
     @staticmethod
-    def _sentiment_to_colour(sentiment: Optional[float]) -> str:
-        if sentiment is None:
-            return "#00FF00"
-        if sentiment >= 0.2:
-            return "#0000FF"
-        if sentiment <= -0.2:
-            return "#FF0000"
-        return "#00FF00"
+    def _coerce_strength(payload: Mapping[str, Any]) -> float:
+        for key in ("strength", "weight", "relationship_strength", "value", "score", "intimacy", "closeness"):
+            if key not in payload:
+                continue
+            value = payload[key]
+            try:
+                return max(0.1, min(float(value), 1.0))
+            except (TypeError, ValueError):
+                continue
+        return 1.0
 
-    def _build_node_source(self, layout: Mapping[str, Tuple[float, float]]):
-        ids: List[str] = []
-        xs: List[float] = []
-        ys: List[float] = []
+    def _build_node_source(self, layout: Mapping[str, Tuple[float, float]]) -> ColumnDataSource:
+        x_coords: List[float] = []
+        y_coords: List[float] = []
         colors: List[str] = []
-        border_colors: List[str] = []
         alphas: List[float] = []
         sizes: List[float] = []
-
         labels: List[str] = []
-        for node_id, attributes in self._graph.nodes(data=True):
-            ids.append(node_id)
-            coords = layout.get(node_id)
-            if coords is None:
-                coords = (0.0, 0.0)
-            x_coord = float(coords[0])
-            y_coord = float(coords[1])
-            xs.append(x_coord)
-            ys.append(y_coord)
-            sentiment = None
-            if "status" in attributes:
-                sentiment = self._resolve_sentiment(attributes.get("status"))
-            if sentiment is None and "sentiment" in attributes:
-                sentiment = self._resolve_sentiment(attributes.get("sentiment"))
-            color_value = attributes.get("color")
-            if color_value in (None, ""):
-                color_value = self._sentiment_to_colour(sentiment)
-            colors.append(str(color_value))
-            border_value = attributes.get("border_color")
-            if border_value in (None, ""):
-                border_value = color_value
-            border_colors.append(str(border_value))
-            alpha_value = attributes.get("alpha", 0.95)
-            try:
-                alpha_numeric = float(alpha_value)
-            except (TypeError, ValueError):
-                alpha_numeric = 0.95
-            alphas.append(alpha_numeric)
-            base_size = attributes.get("size", 26)
-            try:
-                base_size = float(base_size)
-            except (TypeError, ValueError):
-                base_size = 26.0
-            base_size = max(18.0, base_size)
-            sizes.append(base_size)
-            label_value = attributes.get("label") or attributes.get("name") or node_id
-            labels.append(str(label_value))
+        border_colors: List[str] = []
+        node_ids: List[str] = []
 
-        source = ColumnDataSource(
+        for node_id, attributes in self._graph.nodes(data=True):
+            coords = layout.get(node_id, (0.0, 0.0))
+            x_coords.append(float(coords[0]))
+            y_coords.append(float(coords[1]))
+            node_ids.append(str(node_id))
+            colors.append(str(attributes.get("color") or attributes.get("fill_color") or "#2563EB"))
+            border_colors.append(str(attributes.get("border_color") or attributes.get("line_color") or "#0F172A"))
+            alphas.append(float(attributes.get("alpha", 1.0)))
+            sizes.append(float(attributes.get("size", 22.0)))
+            labels.append(str(attributes.get("label") or attributes.get("name") or node_id))
+
+        return ColumnDataSource(
             data={
-                "id": ids,
-                "x": xs,
-                "y": ys,
+                "x": x_coords,
+                "y": y_coords,
                 "fill_color": colors,
                 "line_color": border_colors,
                 "alpha": alphas,
                 "size": sizes,
                 "label": labels,
+                "id": node_ids,
             }
         )
-        return source
 
-    def _build_edge_source(
-        self, layout: Mapping[str, Tuple[float, float]]
-    ) -> Tuple[ColumnDataSource, Dict[str, List[float]]]:
+    def _build_edge_source(self) -> Tuple[ColumnDataSource, Dict[str, List[float]]]:
         xs: List[List[float]] = []
         ys: List[List[float]] = []
         colors: List[str] = []
@@ -791,29 +553,44 @@ class AgentRelationshipGraphRenderer:
         targets: List[str] = []
 
         for u, v, data in self._graph.edges(data=True):
-            start = layout.get(u)
-            end = layout.get(v)
-            if start is None or end is None:
-                continue
-            x0 = float(start[0])
-            y0 = float(start[1])
-            x1 = float(end[0])
-            y1 = float(end[1])
-            xs.append([x0, x1])
-            ys.append([y0, y1])
+            raw = data.get("data") if isinstance(data, Mapping) else None
+            xs_payload: List[float] = []
+            ys_payload: List[float] = []
+            if isinstance(raw, Mapping):
+                xs_payload = self._coerce_path(raw.get("xs"))
+                ys_payload = self._coerce_path(raw.get("ys"))
+            if not xs_payload or not ys_payload:
+                logger.warning(
+                    "Relationship payload missing geometry for edge %s-%s; rendering disabled.",
+                    u,
+                    v,
+                )
+                xs.append([])
+                ys.append([])
+            else:
+                xs.append([xs_payload[0], xs_payload[-1]])
+                ys.append([ys_payload[0], ys_payload[-1]])
+
             strength = float(data.get("strength", 1.0))
             strengths.append(strength)
             weights.append(float(data.get("weight", strength)))
-            base_width = 1.75 + strength * 2.75
-            widths.append(base_width)
-            alpha = min(0.95, 0.5 + strength * 0.35)
-            alphas.append(alpha)
+            base_width = 1.0 + 2.5 * strength
+            base_alpha = max(0.0, min(0.9, 0.3 + 0.6 * strength))
+            if isinstance(raw, Mapping):
+                try:
+                    base_width = float(raw.get("line_width", base_width))
+                except (TypeError, ValueError):
+                    base_width = 1.0 + 2.5 * strength
+                try:
+                    base_alpha = float(raw.get("line_alpha", base_alpha))
+                except (TypeError, ValueError):
+                    base_alpha = max(0.0, min(0.9, 0.3 + 0.6 * strength))
+            widths.append(max(0.2, base_width))
+            alphas.append(max(0.0, min(0.95, base_alpha)))
             colors.append("#64748B")
             sources.append(str(u))
             targets.append(str(v))
-
-            list_index = len(xs) - 1
-            self._edge_lookup[_EdgeKey(u, v).as_tuple()] = list_index
+            self._edge_lookup[_EdgeKey(u, v).as_tuple()] = len(xs) - 1
 
         source = ColumnDataSource(
             data={
@@ -829,12 +606,23 @@ class AgentRelationshipGraphRenderer:
             }
         )
 
-        base_styles = {
+        return source, {
             "line_color": list(colors),
             "line_alpha": list(alphas),
             "line_width": list(widths),
         }
-        return source, base_styles
+
+    @staticmethod
+    def _coerce_path(values: Any) -> List[float]:
+        if not isinstance(values, Iterable) or isinstance(values, (str, bytes, bytearray)):
+            return []
+        result: List[float] = []
+        for entry in values:
+            try:
+                result.append(float(entry))
+            except (TypeError, ValueError):
+                continue
+        return result
 
     def _build_figure(
         self,
@@ -842,7 +630,7 @@ class AgentRelationshipGraphRenderer:
         height: int,
         x_range: Range1d,
         y_range: Range1d,
-    ) -> "Figure":
+    ) -> Figure:
         fig = figure(
             width=width,
             height=height,
@@ -864,6 +652,7 @@ class AgentRelationshipGraphRenderer:
         return fig
 
     def _attach_renderers(self) -> None:
+        assert self.figure is not None
         edge_renderer = self.figure.multi_line(
             xs="xs",
             ys="ys",
@@ -874,6 +663,7 @@ class AgentRelationshipGraphRenderer:
             line_join="round",
             line_cap="round",
         )
+        edge_renderer.level = "underlay"
 
         node_renderer = self.figure.scatter(
             x="x",
@@ -892,16 +682,9 @@ class AgentRelationshipGraphRenderer:
 
         edge_hover = HoverTool(
             renderers=[edge_renderer],
-            tooltips=[
-                ("source", "@source"),
-                ("target", "@target"),
-                ("strength", "@strength{0.00}")
-            ],
+            tooltips=[("source", "@source"), ("target", "@target"), ("strength", "@strength{0.00}")],
         )
-        node_hover = HoverTool(
-            renderers=[node_renderer],
-            tooltips=[("agent", "@label")],
-        )
+        node_hover = HoverTool(renderers=[node_renderer], tooltips=[("agent", "@label")])
         self.figure.add_tools(edge_hover, node_hover)
 
         tap_callback = CustomJS(
@@ -935,38 +718,75 @@ class AgentRelationshipGraphRenderer:
         if self.figure.toolbar:
             self.figure.toolbar.active_tap = tap_tool
 
+    def _make_flash_callback(
+        self,
+        index: int,
+        key: Tuple[str, str],
+        token: str,
+        active: bool,
+        *,
+        final: bool = False,
+    ):
+        def _callback() -> None:
+            if self._edge_tokens.get(key) != token:
+                return
+            base = self._base_edge_styles
+            if active:
+                width = base["line_width"][index] + self._highlight_width_delta
+                alpha = min(0.95, base["line_alpha"][index] + 0.25)
+                color = self._highlight_color
+            else:
+                width = base["line_width"][index]
+                alpha = base["line_alpha"][index]
+                color = base["line_color"][index]
+            patch = {
+                "line_color": [(index, color)],
+                "line_alpha": [(index, alpha)],
+                "line_width": [(index, width)],
+            }
+            self.edge_source.patch(patch)
+            if final:
+                self._edge_tokens.pop(key, None)
+
+        return _callback
+
     def _compute_plot_ranges(
         self, layout: Mapping[str, Tuple[float, float]]
     ) -> Tuple[Range1d, Range1d]:
         if not layout:
-            return Range1d(-1.25, 1.25), Range1d(-1.25, 1.25)
-
-        xs = [float(coords[0]) for coords in layout.values()]
-        ys = [float(coords[1]) for coords in layout.values()]
-
+            return Range1d(-3.0, 3.0), Range1d(-3.0, 3.0)
+        xs = [coords[0] for coords in layout.values()]
+        ys = [coords[1] for coords in layout.values()]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
+        span_x = max(max_x - min_x, 1.0)
+        span_y = max(max_y - min_y, 1.0)
+        center_x = (min_x + max_x) / 2.0
+        center_y = (min_y + max_y) / 2.0
+        half_width = max(span_x * 0.6, 1.2)
+        half_height = max(span_y * 0.6, 1.2)
+        return Range1d(center_x - half_width, center_x + half_width), Range1d(
+            center_y - half_height,
+            center_y + half_height,
+        )
 
-        span_x = max_x - min_x
-        span_y = max_y - min_y
+    @staticmethod
+    def _estimate_layout_scale(layout: Mapping[str, Tuple[float, float]]) -> float:
+        if not layout:
+            return 3.0
+        xs = [coords[0] for coords in layout.values()]
+        ys = [coords[1] for coords in layout.values()]
+        span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+        return max(3.0, span)
 
-        pad_x = max(span_x * 0.15, 0.1)
-        pad_y = max(span_y * 0.15, 0.1)
+    @staticmethod
+    def _serialise_json(value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        try:
+            return json.loads(json.dumps(value))
+        except (TypeError, ValueError):  # pragma: no cover
+            return str(value)
 
-        if span_x == 0:
-            min_x -= 0.5
-            max_x += 0.5
-        else:
-            min_x -= pad_x
-            max_x += pad_x
-
-        if span_y == 0:
-            min_y -= 0.5
-            max_y += 0.5
-        else:
-            min_y -= pad_y
-            max_y += pad_y
-
-        return Range1d(min_x, max_x), Range1d(min_y, max_y)
 
 __all__ = ["AgentRelationshipGraphRenderer"]

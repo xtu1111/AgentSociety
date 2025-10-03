@@ -8,7 +8,6 @@ import { Agent } from './components/type';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { observer } from 'mobx-react-lite';
 import { StoreContext } from './store';
-import RelationshipEdgesOverlay from './components/RelationshipEdgesOverlay';
 import RelationshipGraphPanel from './RelationshipGraphPanel';
 import { useTranslation } from 'react-i18next';
 
@@ -639,9 +638,6 @@ const Deck = observer((props: {
                     />
                 ))}
             </div>
-        )}
-        {layoutMode !== 'force' && (
-            <RelationshipEdgesOverlay experimentId={store.expID} containerRef={containerRef} />
         )}
     </div>;
 });

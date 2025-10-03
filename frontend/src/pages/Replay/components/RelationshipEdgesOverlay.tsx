@@ -1,5 +1,4 @@
 import React, {
-    useCallback,
     useEffect,
     useMemo,
     useRef,
@@ -32,6 +31,7 @@ interface RelationshipEdgesResponse {
 interface RelationshipEdgesOverlayProps {
     experimentId?: string;
     containerRef: React.RefObject<HTMLElement>;
+    active?: boolean;
 }
 
 interface DerivedEdge {
@@ -107,13 +107,13 @@ const makeEdgeKey = (a: string, b: string): string => [a, b].sort().join('::');
 const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
     experimentId,
     containerRef,
+    active = true,
 }) => {
     const [payload, setPayload] = useState<RelationshipEdgesResponse | null>(null);
     const [viewport, setViewport] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
     const highlightedEdges = useRef<Map<string, number>>(new Map());
     const edgeKeysRef = useRef<Set<string>>(new Set());
     const aliasLookupRef = useRef<Map<string, string>>(new Map());
-    const warnedMissingRef = useRef<Set<string>>(new Set());
     const [version, setVersion] = useState(0);
 
     useEffect(() => {
@@ -139,7 +139,7 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
     }, [containerRef]);
 
     useEffect(() => {
-        if (!experimentId) {
+        if (!active || !experimentId) {
             setPayload(null);
             return;
         }
@@ -174,15 +174,21 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             cancelled = true;
             controller.abort();
         };
-    }, [experimentId]);
+    }, [experimentId, active]);
 
     useEffect(() => {
+        if (!active) {
+            highlightedEdges.current.clear();
+            return;
+        }
         highlightedEdges.current.clear();
-        warnedMissingRef.current.clear();
         setVersion((v) => v + 1);
-    }, [payload]);
+    }, [payload, active]);
 
     useEffect(() => {
+        if (!active) {
+            return undefined;
+        }
         const handleHighlight = (event: Event) => {
             const custom = event as CustomEvent<HighlightEventDetail>;
             const detail = custom.detail;
@@ -215,16 +221,17 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
         return () => {
             window.removeEventListener('relationship:highlight', handleHighlight as EventListener);
         };
-    }, []);
+    }, [active]);
 
     const derivedEdges = useMemo(() => {
-        if (!payload || viewport.width <= 0 || viewport.height <= 0) {
+        if (!active || !payload || viewport.width <= 0 || viewport.height <= 0) {
             return [] as DerivedEdge[];
         }
+
         const aliasLookup = new Map<string, string>();
         const layoutLookup = new Map<string, { x: number; y: number }>();
-        const nodes = payload.nodes ?? [];
-        nodes.forEach((node) => {
+
+        (payload.nodes ?? []).forEach((node) => {
             const idToken = normaliseToken(node.id);
             const nameToken = normaliseToken(node.name);
             const canonical = idToken ?? nameToken;
@@ -242,12 +249,6 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             const layoutY = parseNumeric(node.y);
             if (layoutX !== undefined && layoutY !== undefined) {
                 layoutLookup.set(canonical, { x: layoutX, y: layoutY });
-                if (idToken) {
-                    layoutLookup.set(idToken, { x: layoutX, y: layoutY });
-                }
-                if (nameToken) {
-                    layoutLookup.set(nameToken, { x: layoutX, y: layoutY });
-                }
             }
         });
 
@@ -272,13 +273,7 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             const strength = clampStrength(parseNumeric(edge.strength));
             const xs = parseCoordinateArray(edge.xs);
             const ys = parseCoordinateArray(edge.ys);
-            return [{
-                source,
-                target,
-                strength,
-                xs,
-                ys,
-            }];
+            return [{ source, target, strength, xs, ys }];
         });
 
         aliasLookupRef.current = aliasLookup;
@@ -308,61 +303,15 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
                 return;
             }
             const limit = Math.min(edge.xs.length, edge.ys.length);
-            for (let index = 0; index < limit; index += 1) {
-                includePoint(edge.xs[index], edge.ys[index]);
+            if (limit >= 2) {
+                includePoint(edge.xs[0], edge.ys[0]);
+                includePoint(edge.xs[limit - 1], edge.ys[limit - 1]);
             }
         });
 
         const hasGeometry = Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY);
-
         if (!hasGeometry) {
-            const container = containerRef.current;
-            if (!container) {
-                return [] as DerivedEdge[];
-            }
-            const containerRect = container.getBoundingClientRect();
-            const nodeElements = container.querySelectorAll<HTMLElement>('.agent-node');
-            const positions = new Map<string, { x: number; y: number }>();
-            nodeElements.forEach((element) => {
-                const rect = element.getBoundingClientRect();
-                const cx = rect.left - containerRect.left + rect.width / 2;
-                const cy = rect.top - containerRect.top + rect.height / 2;
-                const id = element.dataset.agentId;
-                const name = element.dataset.agentName;
-                const canonical = element.dataset.agentCanonical;
-                if (canonical) {
-                    positions.set(canonical, { x: cx, y: cy });
-                }
-                if (id) {
-                    positions.set(id, { x: cx, y: cy });
-                }
-                if (name) {
-                    positions.set(name, { x: cx, y: cy });
-                }
-            });
-            const results: DerivedEdge[] = [];
-            edges.forEach((edge) => {
-                const key = makeEdgeKey(edge.source, edge.target);
-                const source = positions.get(edge.source);
-                const target = positions.get(edge.target);
-                if (!source || !target) {
-                    if (!warnedMissingRef.current.has(key)) {
-                        warnedMissingRef.current.add(key);
-                        console.warn('Relationship edge missing node position', edge);
-                    }
-                    return;
-                }
-                const width = 1 + edge.strength * 2;
-                const opacity = Math.min(0.85, 0.35 + edge.strength * 0.35);
-                results.push({
-                    key,
-                    points: [source, target],
-                    width,
-                    opacity,
-                    highlighted: false,
-                });
-            });
-            return results;
+            return [] as DerivedEdge[];
         }
 
         const padding = Math.max(40, Math.min(viewport.width, viewport.height) * 0.08);
@@ -376,54 +325,64 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             y: padding + ((y - minY) / spanY) * usableHeight,
         });
 
-        const inferredPositions = new Map<string, { x: number; y: number }>();
+        const results: DerivedEdge[] = [];
 
-        const results: DerivedEdge[] = edges.map((edge) => {
+        edges.forEach((edge) => {
             const key = makeEdgeKey(edge.source, edge.target);
-            const width = 1 + edge.strength * 2;
-            const opacity = Math.min(0.85, 0.35 + edge.strength * 0.35);
+            const width = 1 + 2.5 * edge.strength;
+            const opacity = Math.max(0, Math.min(0.9, 0.3 + 0.6 * edge.strength));
             const points: { x: number; y: number }[] = [];
+
             if (edge.xs && edge.ys) {
                 const limit = Math.min(edge.xs.length, edge.ys.length);
-                for (let index = 0; index < limit; index += 1) {
-                    const x = edge.xs[index];
-                    const y = edge.ys[index];
-                    if (typeof x === 'number' && typeof y === 'number') {
-                        const point = transformPoint(x, y);
-                        points.push(point);
-                        if (index === 0) {
-                            inferredPositions.set(edge.source, point);
-                        }
-                        if (index === limit - 1) {
-                            inferredPositions.set(edge.target, point);
-                        }
+                if (limit >= 2) {
+                    const firstX = edge.xs[0];
+                    const firstY = edge.ys[0];
+                    const lastX = edge.xs[limit - 1];
+                    const lastY = edge.ys[limit - 1];
+                    if (typeof firstX === 'number' && typeof firstY === 'number') {
+                        points.push(transformPoint(firstX, firstY));
+                    }
+                    if (typeof lastX === 'number' && typeof lastY === 'number') {
+                        points.push(transformPoint(lastX, lastY));
                     }
                 }
             }
+
             if (points.length < 2) {
                 const sourceLayout = layoutLookup.get(edge.source);
                 const targetLayout = layoutLookup.get(edge.target);
-                const sourcePoint = sourceLayout ? transformPoint(sourceLayout.x, sourceLayout.y) : inferredPositions.get(edge.source);
-                const targetPoint = targetLayout ? transformPoint(targetLayout.x, targetLayout.y) : inferredPositions.get(edge.target);
-                if (sourcePoint && targetPoint) {
-                    points.length = 0;
-                    points.push(sourcePoint, targetPoint);
+                if (sourceLayout && targetLayout) {
+                    points.push(transformPoint(sourceLayout.x, sourceLayout.y));
+                    points.push(transformPoint(targetLayout.x, targetLayout.y));
                 }
             }
-            if (points.length < 2) {
-                return undefined;
+
+            if (points.length >= 2) {
+                results.push({
+                    key,
+                    points,
+                    width,
+                    opacity,
+                    highlighted: false,
+                });
             }
-            return {
-                key,
-                points,
-                width,
-                opacity,
-                highlighted: false,
-            };
-        }).filter((edge): edge is DerivedEdge => edge !== undefined);
+        });
+
+        if (results.length === 0) {
+            console.debug('RelationshipEdgesOverlay: no edges to render', {
+                experimentId,
+                edgeCount: edges.length,
+            });
+        } else {
+            console.debug('RelationshipEdgesOverlay: rendering edges', {
+                experimentId,
+                edgeCount: results.length,
+            });
+        }
 
         return results;
-    }, [payload, viewport, containerRef, version]);
+    }, [payload, viewport, active]);
 
     const edgesWithHighlight = useMemo(() => derivedEdges.map((edge) => {
         const highlighted = highlightedEdges.current.has(edge.key);
@@ -431,12 +390,14 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             ...edge,
             highlighted,
             stroke: highlighted ? HIGHLIGHT_COLOR : BASE_STROKE_COLOR,
-            strokeOpacity: highlighted ? 0.95 : edge.opacity,
-            strokeWidth: highlighted ? edge.width + 1.2 : edge.width,
+            strokeOpacity: highlighted
+                ? Math.min(0.95, edge.opacity + 0.12)
+                : edge.opacity,
+            strokeWidth: highlighted ? edge.width + 1 : edge.width,
         };
     }), [derivedEdges, version]);
 
-    if (!payload || viewport.width <= 0 || viewport.height <= 0) {
+    if (!active || !payload || viewport.width <= 0 || viewport.height <= 0) {
         return null;
     }
 

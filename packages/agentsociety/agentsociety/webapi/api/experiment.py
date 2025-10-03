@@ -5,19 +5,20 @@ import io
 import json
 import logging
 import math
+import random
 import uuid
 import zipfile
 import base64
 from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Optional, Set, Tuple, cast
 
 import yaml
-from bokeh.document import Document
 from bokeh.embed import components
 from bokeh.resources import CDN
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
+import networkx as nx
 from agentsociety.configs.exp import WorkflowType
 from ..models import ApiResponseWrapper
 from ..models.agent import (
@@ -236,8 +237,70 @@ async def _build_relationship_graph_payload(
         status_result = await db.execute(status_stmt)
         status_rows = status_result.all()
 
-    relationship_keys = ("connections", "relationships", "links", "edges", "social_network")
+    relationship_keys = (
+        "connections",
+        "relationships",
+        "links",
+        "edges",
+        "social_network",
+        "friends",
+        "friendships",
+        "friend_list",
+        "friend_ids",
+        "contacts",
+        "contact_list",
+        "connections_list",
+        "connection_map",
+        "relationship_map",
+        "relationship_list",
+        "neighbors",
+        "neighbors_list",
+        "neighbours",
+        "neighbours_list",
+        "relations",
+        "relations_list",
+        "ties",
+        "network",
+        "network_map",
+        "associates",
+        "companions",
+        "colleagues",
+        "coworkers",
+        "peers",
+        "social_links",
+        "social_graph",
+        "social_ties",
+        "acquaintances",
+        "acquaintance_list",
+        "bonds",
+        "buddies",
+        "ally_list",
+        "alliances",
+        "linkages",
+        "connection_graph",
+        "relationship_graph",
+    )
     relationship_key_set = {key.lower() for key in relationship_keys}
+    relationship_key_substrings = (
+        "friend",
+        "contact",
+        "neigh",
+        "relat",
+        "connect",
+        "network",
+        "link",
+        "assoc",
+        "compan",
+        "colleague",
+        "cowork",
+        "peer",
+        "graph",
+        "tie",
+        "bond",
+        "buddy",
+        "alliance",
+        "acquaint",
+    )
 
     source_keys = (
         "source",
@@ -260,6 +323,14 @@ async def _build_relationship_graph_payload(
         "agent_id",
         "id",
         "name",
+        "contact",
+        "contact_id",
+        "neighbor",
+        "neighbor_id",
+        "neighbour",
+        "neighbour_id",
+        "relation",
+        "relation_id",
     )
     strength_keys = (
         "strength",
@@ -288,6 +359,14 @@ async def _build_relationship_graph_payload(
         "friend_id",
         "agent",
         "agent_id",
+        "contact",
+        "contact_id",
+        "neighbor",
+        "neighbor_id",
+        "neighbour",
+        "neighbour_id",
+        "relation",
+        "relation_id",
     )
 
     source_aliases = {key.lower() for key in source_detection_keys}
@@ -303,6 +382,16 @@ async def _build_relationship_graph_payload(
         "agent",
         "target",
         "source",
+        "contact",
+        "contact_id",
+        "friend",
+        "friend_id",
+        "neighbor",
+        "neighbor_id",
+        "neighbour",
+        "neighbour_id",
+        "relation",
+        "relation_id",
     )
 
     def _normalise_identifier(value: Any) -> Optional[str]:
@@ -330,10 +419,22 @@ async def _build_relationship_graph_payload(
     def _coerce_identifier(
         payload: Mapping[str, Any], keys: Tuple[str, ...], default: Optional[str] = None
     ) -> Optional[str]:
+        lowered_cache: Optional[Dict[str, Any]] = None
         for key in keys:
-            if key not in payload:
+            if key in payload:
+                identifier = _normalise_identifier(payload[key])
+                if identifier is not None:
+                    return identifier
                 continue
-            identifier = _normalise_identifier(payload[key])
+            lowered_key = str(key).lower()
+            if lowered_cache is None:
+                lowered_cache = {
+                    str(payload_key).lower(): payload_value
+                    for payload_key, payload_value in payload.items()
+                }
+            if lowered_key not in lowered_cache:
+                continue
+            identifier = _normalise_identifier(lowered_cache[lowered_key])
             if identifier is not None:
                 return identifier
         return default
@@ -378,8 +479,19 @@ async def _build_relationship_graph_payload(
         return None
 
     def _has_identifier(payload: Mapping[str, Any], keys: Tuple[str, ...]) -> bool:
+        lowered_cache: Optional[Dict[str, Any]] = None
         for key in keys:
             if key in payload and _normalise_identifier(payload[key]) is not None:
+                return True
+            lowered_key = str(key).lower()
+            if lowered_cache is None:
+                lowered_cache = {
+                    str(payload_key).lower(): payload_value
+                    for payload_key, payload_value in payload.items()
+                }
+            if lowered_key in lowered_cache and _normalise_identifier(
+                lowered_cache[lowered_key]
+            ) is not None:
                 return True
         return False
 
@@ -388,9 +500,7 @@ async def _build_relationship_graph_payload(
     ) -> bool:
         lowered_keys = {str(key).lower() for key in mapping.keys()}
         has_target = any(candidate in lowered_keys for candidate in target_aliases)
-        if not has_target and (
-            {"name", "id"} & lowered_keys and strength_aliases & lowered_keys
-        ):
+        if not has_target and ("id" in lowered_keys or "name" in lowered_keys):
             has_target = True
         if not has_target and ("agent" in lowered_keys or "friend" in lowered_keys):
             has_target = True
@@ -399,9 +509,23 @@ async def _build_relationship_graph_payload(
             has_source = True
         return has_source and has_target
 
+    def _maybe_parse_json(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return value
+        if text[0] not in '{[':
+            return value
+        try:
+            return json.loads(text)
+        except Exception:
+            return value
+
     def _iter_connection_entries(
         value: Any, *, default_source: Optional[str] = None
     ) -> Iterator[MutableMapping[str, Any]]:
+        value = _maybe_parse_json(value)
         if isinstance(value, Mapping):
             if _mapping_represents_edge(value, default_source):
                 payload = dict(value)
@@ -417,8 +541,23 @@ async def _build_relationship_graph_payload(
                 key_str = str(key)
                 nested_source = default_source or key_str
 
+                nested = _maybe_parse_json(nested)
+
                 if isinstance(nested, Mapping):
-                    if _mapping_represents_edge(nested, nested_source):
+                    candidate_edge = dict(nested)
+                    if not _has_identifier(candidate_edge, target_keys):
+                        candidate_edge["target"] = key_str
+                    if default_source is not None:
+                        if not _has_identifier(candidate_edge, source_keys):
+                            candidate_edge["source"] = default_source
+                    elif not _has_identifier(candidate_edge, source_keys):
+                        candidate_edge["source"] = nested_source
+
+                    if _mapping_represents_edge(candidate_edge, default_source):
+                        yield candidate_edge
+                        continue
+
+                    if _mapping_represents_edge(nested, default_source):
                         payload = dict(nested)
                         if not _has_identifier(payload, target_keys):
                             payload["target"] = key_str
@@ -429,6 +568,34 @@ async def _build_relationship_graph_payload(
                             payload["source"] = nested_source
                         yield payload
                         continue
+
+                lowered_key = key_str.lower()
+
+                if lowered_key in target_aliases or lowered_key in {"id", "name"}:
+                    target_identifier = _normalise_identifier(nested)
+                    if target_identifier is not None:
+                        payload = {"target": target_identifier}
+                        strength_value = None
+                        if lowered_key not in {"id", "name"}:
+                            strength_value = _coerce_numeric(nested)
+                        if strength_value is not None:
+                            payload["strength"] = strength_value
+                        if default_source is not None:
+                            payload["source"] = default_source
+                        elif not _has_identifier(payload, source_keys):
+                            payload["source"] = nested_source
+                        yield payload
+                        continue
+
+                if lowered_key in strength_aliases and default_source is not None:
+                    numeric_strength = _coerce_numeric(nested)
+                    if numeric_strength is not None:
+                        yield {
+                            "source": default_source,
+                            "target": key_str,
+                            "strength": numeric_strength,
+                        }
+                    continue
 
                 if isinstance(nested, Mapping) or (
                     isinstance(nested, Iterable)
@@ -465,6 +632,7 @@ async def _build_relationship_graph_payload(
 
         if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
             for item in value:
+                item = _maybe_parse_json(item)
                 if isinstance(item, Mapping):
                     payload = dict(item)
                     if default_source is not None and not _has_identifier(payload, source_keys):
@@ -498,6 +666,7 @@ async def _build_relationship_graph_payload(
         default_source: Optional[str],
         visited: Set[int],
     ) -> Iterator[MutableMapping[str, Any]]:
+        container = _maybe_parse_json(container)
         if isinstance(container, Mapping):
             container_id = id(container)
             if container_id in visited:
@@ -510,7 +679,7 @@ async def _build_relationship_graph_payload(
 
             for key, nested in container.items():
                 key_lower = str(key).lower()
-                if key_lower in relationship_key_set:
+                if key_lower in relationship_key_set or any(substr in key_lower for substr in relationship_key_substrings):
                     for entry in _iter_connection_entries(
                         nested, default_source=default_source
                     ):
@@ -728,20 +897,230 @@ async def _build_relationship_graph_payload(
     agents.extend(additional_nodes[endpoint] for endpoint in sorted(additional_nodes))
 
     edges_payload = [dict(edge_map[key]) for key in sorted(edge_map)]
+    if not edges_payload:
+        logging.warning(
+            "No relationship edges detected for experiment %s", exp_id
+        )
+
     nodes_payload = [dict(agent) for agent in agents]
 
-    return {"nodes": nodes_payload, "edges": edges_payload}
+    graph = nx.Graph()
+    layout_payload: Dict[str, Dict[str, float]] = {}
+
+    anonymous_index = 0
+    for node in nodes_payload:
+        candidate_identifier = _normalise_identifier(node.get("id"))
+        if candidate_identifier is None:
+            candidate_identifier = _normalise_identifier(node.get("name"))
+        if candidate_identifier is None:
+            anonymous_index += 1
+            candidate_identifier = f"_anonymous_{anonymous_index}"
+        node_id = str(candidate_identifier)
+        node["id"] = node_id
+        graph.add_node(node_id)
+
+    def _add_edge_record(source: str, target: str, strength: float) -> None:
+        if source == target:
+            return
+        key = tuple(sorted((source, target)))
+        existing = edge_map.get(key)
+        if existing is None or strength > float(existing.get("strength", 0.0) or 0.0):
+            edge_map[key] = {
+                "source": source,
+                "target": target,
+                "strength": strength,
+                "weight": strength,
+            }
+
+    if not edges_payload:
+        fallback_relationship_keys = relationship_key_set | {
+            "targets",
+            "target_list",
+            "friends_list",
+            "relations_map",
+            "links_map",
+        }
+
+        def _fallback_iter_entries(raw_value: Any, default_source: Optional[str]) -> Iterator[Tuple[str, float]]:
+            if raw_value is None:
+                return
+            value = _maybe_parse_json(raw_value)
+            if isinstance(value, Mapping):
+                for key, nested in value.items():
+                    key_lower = str(key).lower()
+                    if key_lower in fallback_relationship_keys or any(substr in key_lower for substr in relationship_key_substrings):
+                        yield from _fallback_iter_entries(nested, default_source)
+                    else:
+                        target = _normalise_identifier(key)
+                        strength = _coerce_numeric(nested) or 1.0
+                        if target is not None and default_source is not None:
+                            yield (target, float(strength))
+                return
+            if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+                for item in value:
+                    if isinstance(item, Mapping):
+                        target = _coerce_identifier(item, target_keys)
+                        if target is None:
+                            target = _normalise_identifier(item.get("id")) or _normalise_identifier(item.get("name"))
+                        if target is None and default_source is not None and len(item) == 1:
+                            only_value = next(iter(item.values()))
+                            target = _normalise_identifier(only_value)
+                        strength = _extract_strength(item) or _coerce_numeric(item) or 1.0
+                        if target is not None:
+                            yield (str(target), float(strength))
+                    else:
+                        target = _normalise_identifier(item)
+                        if target is not None:
+                            yield (target, 1.0)
+                return
+            target = _normalise_identifier(value)
+            if target is not None and default_source is not None:
+                yield (target, 1.0)
+
+        for node in agents:
+            source_identifier = _normalise_identifier(node.get("id")) or _normalise_identifier(node.get("name"))
+            if not source_identifier:
+                continue
+            for key, nested in list(node.items()):
+                key_lower = str(key).lower()
+                if key_lower in fallback_relationship_keys or any(substr in key_lower for substr in relationship_key_substrings):
+                    for target, strength in _fallback_iter_entries(nested, source_identifier):
+                        _add_edge_record(str(source_identifier), str(target), max(0.1, min(strength, 1.0)))
+
+        for status_key, status_payload in latest_status_map.items():
+            for target, strength in _fallback_iter_entries(status_payload, status_key):
+                _add_edge_record(str(status_key), str(target), max(0.1, min(strength, 1.0)))
+
+        edges_payload = [dict(edge_map[key]) for key in sorted(edge_map)]
+
+    for edge in edges_payload:
+        source = _normalise_identifier(edge.get("source"))
+        target = _normalise_identifier(edge.get("target"))
+        if source is None or target is None:
+            continue
+        source_id = str(source)
+        target_id = str(target)
+        strength_value = edge.get("strength")
+        try:
+            strength_numeric = float(strength_value) if strength_value is not None else 1.0
+        except (TypeError, ValueError):
+            strength_numeric = 1.0
+        strength_numeric = max(0.1, min(strength_numeric, 1.0))
+        edge["strength"] = strength_numeric
+        edge["line_width"] = float(1.0 + 2.5 * strength_numeric)
+        edge["line_alpha"] = max(0.0, min(0.9, 0.3 + 0.6 * strength_numeric))
+        weight_value = edge.get("weight")
+        try:
+            weight_numeric = float(weight_value) if weight_value is not None else strength_numeric
+        except (TypeError, ValueError):
+            weight_numeric = strength_numeric
+        if weight_numeric <= 0:
+            weight_numeric = strength_numeric
+        edge["weight"] = weight_numeric
+        graph.add_edge(source_id, target_id, weight=weight_numeric)
+
+    if graph.number_of_nodes() > 0:
+        node_count = graph.number_of_nodes()
+        if node_count <= 150:
+            scale_value = 3.2
+        else:
+            scale_value = max(2.2, 3.2 * math.sqrt(150.0 / float(node_count)))
+
+        try:
+            if node_count <= 40:
+                raw_layout = nx.kamada_kawai_layout(
+                    graph,
+                    weight="weight",
+                    scale=scale_value,
+                    center=(0.0, 0.0),
+                )
+            elif node_count <= 200:
+                density = max(1.0, float(node_count))
+                fr_constant = 1.5 / math.sqrt(density)
+                iterations = max(1000, int(node_count * 5))
+                raw_layout = nx.fruchterman_reingold_layout(
+                    graph,
+                    weight="weight",
+                    seed=42,
+                    k=fr_constant,
+                    iterations=iterations,
+                    scale=scale_value,
+                    center=(0.0, 0.0),
+                )
+            else:
+                density = max(1.0, float(node_count))
+                spring_constant = 3.0 / math.sqrt(density)
+                iterations = max(300, int(node_count * 1.2))
+                raw_layout = nx.spring_layout(
+                    graph,
+                    weight="weight",
+                    seed=42,
+                    k=spring_constant,
+                    iterations=iterations,
+                    scale=scale_value,
+                    center=(0.0, 0.0),
+                )
+        except Exception:  # pragma: no cover - safeguard layout generation
+            raw_layout = {node: (0.0, 0.0) for node in graph.nodes}
+
+        xs = [coords[0] for coords in raw_layout.values()] if raw_layout else []
+        ys = [coords[1] for coords in raw_layout.values()] if raw_layout else []
+        if xs and ys:
+            span_x = max(xs) - min(xs)
+            span_y = max(ys) - min(ys)
+            base_span = max(span_x, span_y, 1.0)
+        else:
+            base_span = max(scale_value, 1.0)
+
+        rng = random.Random(42)
+        jitter_scale = base_span * 0.03
+        for node_id, coords in list(raw_layout.items()):
+            raw_layout[node_id] = (
+                float(coords[0]) + rng.uniform(-jitter_scale, jitter_scale),
+                float(coords[1]) + rng.uniform(-jitter_scale, jitter_scale),
+            )
+    else:
+        raw_layout = {}
+
+    for node in nodes_payload:
+        node_id = node["id"]
+        position = raw_layout.get(node_id)
+        if position is None:
+            position = (0.0, 0.0)
+        x_coord = float(position[0])
+        y_coord = float(position[1])
+        node["x"] = x_coord
+        node["y"] = y_coord
+        layout_payload[node_id] = {"x": x_coord, "y": y_coord}
+
+    for edge in edges_payload:
+        source = _normalise_identifier(edge.get("source"))
+        target = _normalise_identifier(edge.get("target"))
+        if source is None or target is None:
+            edge["xs"] = []
+            edge["ys"] = []
+            continue
+        source_position = raw_layout.get(str(source))
+        target_position = raw_layout.get(str(target))
+        if source_position is None or target_position is None:
+            edge["xs"] = []
+            edge["ys"] = []
+            continue
+        edge["xs"] = [float(source_position[0]), float(target_position[0])]
+        edge["ys"] = [float(source_position[1]), float(target_position[1])]
+
+    return {"nodes": nodes_payload, "edges": edges_payload, "layout": layout_payload}
 
 
 @router.get("/experiments/{exp_id}/relationship-graph", response_class=HTMLResponse)
 async def get_experiment_relationship_graph(
     request: Request,
     exp_id: uuid.UUID,
-    format: str = Query("html"),
+    format: str = Query("json"),
 ):
     payload = await _build_relationship_graph_payload(request, exp_id)
 
-    normalised_format = (format or "html").strip().lower()
+    normalised_format = (format or "json").strip().lower()
     empty_payload = {"nodes": [], "edges": []}
 
     nodes = payload.get("nodes") or []
@@ -754,7 +1133,10 @@ async def get_experiment_relationship_graph(
         )
 
     try:
-        renderer = AgentRelationshipGraphRenderer(payload)
+        renderer = AgentRelationshipGraphRenderer(
+            payload,
+            enable_rendering=normalised_format == "html",
+        )
     except ValueError as exc:
         if normalised_format == "json":
             return JSONResponse(content=empty_payload)
@@ -789,15 +1171,13 @@ async def get_experiment_relationship_edges(
             detail="No agent profiles available for experiment relationship graph",
         )
 
-    try:
-        renderer = AgentRelationshipGraphRenderer(payload, doc=Document())
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
+    edges = payload.get("edges") or []
+    if not edges:
+        logging.warning(
+            "Relationship edge export for experiment %s contains no edges", exp_id
+        )
 
-    return JSONResponse(content=renderer.export_graph())
+    return JSONResponse(content=payload)
 
 @router.get("/experiments/{exp_id}/timeline")
 async def get_experiment_status_timeline_by_id(

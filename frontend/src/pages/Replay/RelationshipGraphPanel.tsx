@@ -198,157 +198,6 @@ const sentimentToColour = (sentiment: number | undefined): string => {
     return '#00FF00';
 };
 
-interface SimulationNode extends GraphNodeInput {
-    x: number;
-    y: number;
-    vx: number;
-    vy: number;
-}
-
-const runForceLayout = (
-    nodes: GraphNodeInput[],
-    edges: GraphEdgeInput[],
-    width: number,
-    height: number,
-    previousPositions: Map<string, { x: number; y: number }>,
-): LayoutNode[] => {
-    if (nodes.length === 0 || width <= 0 || height <= 0) {
-        return [];
-    }
-
-    const simulationNodes: SimulationNode[] = nodes.map((node) => {
-        const previous = previousPositions.get(node.id);
-        const startX = previous?.x ?? (width / 2 + (Math.random() - 0.5) * width * 0.25);
-        const startY = previous?.y ?? (height / 2 + (Math.random() - 0.5) * height * 0.25);
-        return {
-            ...node,
-            x: startX,
-            y: startY,
-            vx: 0,
-            vy: 0,
-        };
-    });
-
-    const lookup = new Map<string, SimulationNode>();
-    simulationNodes.forEach((node) => {
-        lookup.set(node.id, node);
-    });
-
-    const area = Math.max(width * height, 1);
-    const baseLength = Math.sqrt(area / simulationNodes.length);
-    let temperature = Math.min(width, height) / 6;
-    const iterations = Math.min(300, Math.max(80, edges.length * 12));
-
-    for (let iter = 0; iter < iterations; iter += 1) {
-        simulationNodes.forEach((node) => {
-            node.vx = 0;
-            node.vy = 0;
-        });
-
-        for (let i = 0; i < simulationNodes.length; i += 1) {
-            for (let j = i + 1; j < simulationNodes.length; j += 1) {
-                const nodeA = simulationNodes[i];
-                const nodeB = simulationNodes[j];
-                let dx = nodeA.x - nodeB.x;
-                let dy = nodeA.y - nodeB.y;
-                let distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < 1e-6) {
-                    dx = (Math.random() - 0.5) * 0.1;
-                    dy = (Math.random() - 0.5) * 0.1;
-                    distance = Math.sqrt(dx * dx + dy * dy) || 0.01;
-                }
-                const force = (baseLength * baseLength) / distance;
-                const fx = (dx / distance) * force;
-                const fy = (dy / distance) * force;
-                nodeA.vx += fx;
-                nodeA.vy += fy;
-                nodeB.vx -= fx;
-                nodeB.vy -= fy;
-            }
-        }
-
-        for (const edge of edges) {
-            const source = lookup.get(edge.source);
-            const target = lookup.get(edge.target);
-            if (!source || !target) {
-                continue;
-            }
-            let dx = source.x - target.x;
-            let dy = source.y - target.y;
-            let distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance < 1e-6) {
-                dx = (Math.random() - 0.5) * 0.1;
-                dy = (Math.random() - 0.5) * 0.1;
-                distance = Math.sqrt(dx * dx + dy * dy) || 0.01;
-            }
-            const desired = baseLength / edge.strength;
-            const displacement = distance - desired;
-            const force = displacement * edge.strength;
-            const fx = (dx / distance) * force;
-            const fy = (dy / distance) * force;
-            source.vx -= fx;
-            source.vy -= fy;
-            target.vx += fx;
-            target.vy += fy;
-        }
-
-        simulationNodes.forEach((node) => {
-            node.vx *= 0.4;
-            node.vy *= 0.4;
-            const displacement = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
-            if (displacement > temperature && displacement > 0) {
-                const scale = temperature / displacement;
-                node.vx *= scale;
-                node.vy *= scale;
-            }
-            node.x += node.vx;
-            node.y += node.vy;
-        });
-
-        temperature *= 0.92;
-    }
-
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-
-    simulationNodes.forEach((node) => {
-        if (node.x < minX) {
-            minX = node.x;
-        }
-        if (node.x > maxX) {
-            maxX = node.x;
-        }
-        if (node.y < minY) {
-            minY = node.y;
-        }
-        if (node.y > maxY) {
-            maxY = node.y;
-        }
-    });
-
-    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
-        return simulationNodes.map(({ vx: _vx, vy: _vy, ...rest }) => ({
-            ...rest,
-            x: width / 2,
-            y: height / 2,
-        }));
-    }
-
-    const padding = Math.max(40, Math.min(width, height) * 0.08);
-    const spanX = Math.max(maxX - minX, 1);
-    const spanY = Math.max(maxY - minY, 1);
-    const usableWidth = Math.max(width - padding * 2, 1);
-    const usableHeight = Math.max(height - padding * 2, 1);
-
-    return simulationNodes.map(({ vx: _vx, vy: _vy, ...rest }) => ({
-        ...rest,
-        x: padding + ((rest.x - minX) / spanX) * usableWidth,
-        y: padding + ((rest.y - minY) / spanY) * usableHeight,
-    }));
-};
-
 const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     experimentId,
     visible,
@@ -614,50 +463,10 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
             return;
         }
 
-        const hasBackendLayout = graphData.nodes.some(
-            (node) => typeof node.layoutX === 'number' && typeof node.layoutY === 'number',
-        );
-        const hasEdgeGeometry = graphData.edges.some(
-            (edge) => (edge.xs?.length ?? 0) >= 2 && (edge.ys?.length ?? 0) >= 2,
-        );
-
-        if (!hasBackendLayout && !hasEdgeGeometry) {
-            const positioned = runForceLayout(
-                graphData.nodes,
-                graphData.edges,
-                width,
-                height,
-                previousPositionsRef.current,
-            );
-            previousPositionsRef.current = new Map(
-                positioned.map((node) => [node.id, { x: node.x, y: node.y }]),
-            );
-            const positionLookup = new Map<string, LayoutNode>();
-            positioned.forEach((node) => {
-                positionLookup.set(node.id, node);
-            });
-            const edgesWithGeometry: LayoutEdge[] = graphData.edges.map((edge) => {
-                const source = positionLookup.get(edge.source);
-                const target = positionLookup.get(edge.target);
-                if (!source || !target) {
-                    return undefined;
-                }
-                const points = [
-                    { x: source.x, y: source.y },
-                    { x: target.x, y: target.y },
-                ];
-                return {
-                    key: makeEdgeKey(edge.source, edge.target),
-                    source: edge.source,
-                    target: edge.target,
-                    strength: edge.strength,
-                    points,
-                    baseWidth: 1.2 + edge.strength * 2.4,
-                    baseOpacity: Math.min(0.85, 0.35 + edge.strength * 0.35),
-                };
-            }).filter((edge): edge is LayoutEdge => edge !== undefined);
-            setLayoutNodes(positioned);
-            setLayoutEdges(edgesWithGeometry);
+        if (graphData.nodes.length === 0) {
+            previousPositionsRef.current.clear();
+            setLayoutNodes([]);
+            setLayoutEdges([]);
             return;
         }
 
@@ -687,85 +496,39 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 return;
             }
             const limit = Math.min(xs.length, ys.length);
-            for (let index = 0; index < limit; index += 1) {
-                includePoint(xs[index], ys[index]);
+            if (limit >= 2) {
+                includePoint(xs[0], ys[0]);
+                includePoint(xs[limit - 1], ys[limit - 1]);
             }
         });
 
-        if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
-            const positioned = runForceLayout(
-                graphData.nodes,
-                graphData.edges,
-                width,
-                height,
-                previousPositionsRef.current,
-            );
-            previousPositionsRef.current = new Map(
-                positioned.map((node) => [node.id, { x: node.x, y: node.y }]),
-            );
-            const positionLookup = new Map<string, LayoutNode>();
-            positioned.forEach((node) => positionLookup.set(node.id, node));
-            const edgesWithGeometry: LayoutEdge[] = graphData.edges.map((edge) => {
-                const source = positionLookup.get(edge.source);
-                const target = positionLookup.get(edge.target);
-                if (!source || !target) {
-                    return undefined;
-                }
-                const points = [
-                    { x: source.x, y: source.y },
-                    { x: target.x, y: target.y },
-                ];
-                return {
-                    key: makeEdgeKey(edge.source, edge.target),
-                    source: edge.source,
-                    target: edge.target,
-                    strength: edge.strength,
-                    points,
-                    baseWidth: 1.2 + edge.strength * 2.4,
-                    baseOpacity: Math.min(0.85, 0.35 + edge.strength * 0.35),
-                };
-            }).filter((edge): edge is LayoutEdge => edge !== undefined);
-            setLayoutNodes(positioned);
-            setLayoutEdges(edgesWithGeometry);
-            return;
+        const hasGeometry = Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY);
+
+        let transformPoint: ((x: number, y: number) => { x: number; y: number }) | null = null;
+        if (hasGeometry) {
+            const padding = Math.max(40, Math.min(width, height) * 0.08);
+            const spanX = Math.max(maxX - minX, 1e-6);
+            const spanY = Math.max(maxY - minY, 1e-6);
+            const usableWidth = Math.max(width - padding * 2, 1);
+            const usableHeight = Math.max(height - padding * 2, 1);
+            transformPoint = (x: number, y: number) => ({
+                x: padding + ((x - minX) / spanX) * usableWidth,
+                y: padding + ((y - minY) / spanY) * usableHeight,
+            });
         }
 
-        const padding = Math.max(40, Math.min(width, height) * 0.08);
-        const spanX = Math.max(maxX - minX, 1e-6);
-        const spanY = Math.max(maxY - minY, 1e-6);
-        const usableWidth = Math.max(width - padding * 2, 1);
-        const usableHeight = Math.max(height - padding * 2, 1);
-
-        const transformPoint = (x: number, y: number) => ({
-            x: padding + ((x - minX) / spanX) * usableWidth,
-            y: padding + ((y - minY) / spanY) * usableHeight,
-        });
-
-        const inferredPositions = new Map<string, { x: number; y: number }>();
-
-        const positioned = graphData.nodes.map((node) => {
-            if (typeof node.layoutX === 'number' && typeof node.layoutY === 'number') {
-                const point = transformPoint(node.layoutX, node.layoutY);
-                inferredPositions.set(node.id, point);
-                return {
-                    ...node,
-                    x: point.x,
-                    y: point.y,
-                };
-            }
-            const inferred = inferredPositions.get(node.id);
-            if (inferred) {
-                return {
-                    ...node,
-                    x: inferred.x,
-                    y: inferred.y,
-                };
-            }
+        const positioned: LayoutNode[] = graphData.nodes.map((node) => {
+            const rawX = typeof node.layoutX === 'number' ? node.layoutX : undefined;
+            const rawY = typeof node.layoutY === 'number' ? node.layoutY : undefined;
+            const transformed = rawX !== undefined && rawY !== undefined && transformPoint
+                ? transformPoint(rawX, rawY)
+                : undefined;
             const previous = previousPositionsRef.current.get(node.id);
+            const fallback = transformed ?? previous ?? { x: width / 2, y: height / 2 };
             return {
                 ...node,
-                x: previous?.x ?? width / 2,
-                y: previous?.y ?? height / 2,
+                x: fallback.x,
+                y: fallback.y,
             };
         });
 
@@ -774,16 +537,22 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
         const edgesWithGeometry: LayoutEdge[] = graphData.edges.map((edge) => {
             const points: { x: number; y: number }[] = [];
-            if (edge.xs && edge.ys) {
+            if (transformPoint && edge.xs && edge.ys) {
                 const limit = Math.min(edge.xs.length, edge.ys.length);
-                for (let index = 0; index < limit; index += 1) {
-                    const x = edge.xs[index];
-                    const y = edge.ys[index];
-                    if (typeof x === 'number' && typeof y === 'number') {
-                        points.push(transformPoint(x, y));
+                if (limit >= 2) {
+                    const firstX = edge.xs[0];
+                    const firstY = edge.ys[0];
+                    const lastX = edge.xs[limit - 1];
+                    const lastY = edge.ys[limit - 1];
+                    if (typeof firstX === 'number' && typeof firstY === 'number') {
+                        points.push(transformPoint(firstX, firstY));
+                    }
+                    if (typeof lastX === 'number' && typeof lastY === 'number') {
+                        points.push(transformPoint(lastX, lastY));
                     }
                 }
             }
+
             if (points.length < 2) {
                 const source = positionLookup.get(edge.source);
                 const target = positionLookup.get(edge.target);
@@ -793,18 +562,19 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     points.push({ x: target.x, y: target.y });
                 }
             }
+
             if (points.length < 2) {
                 return undefined;
             }
-            const key = makeEdgeKey(edge.source, edge.target);
+
             return {
-                key,
+                key: makeEdgeKey(edge.source, edge.target),
                 source: edge.source,
                 target: edge.target,
                 strength: edge.strength,
                 points,
-                baseWidth: 1.2 + edge.strength * 2.4,
-                baseOpacity: Math.min(0.85, 0.35 + edge.strength * 0.35),
+                baseWidth: 1 + 2.5 * edge.strength,
+                baseOpacity: Math.max(0, Math.min(0.9, 0.3 + 0.6 * edge.strength)),
             };
         }).filter((edge): edge is LayoutEdge => edge !== undefined);
 
@@ -1001,8 +771,8 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         return {
             ...edge,
             highlighted,
-            strokeWidth: highlighted ? edge.baseWidth + 1.6 : edge.baseWidth,
-            strokeOpacity: highlighted ? 0.95 : edge.baseOpacity,
+            strokeWidth: highlighted ? edge.baseWidth + 1 : edge.baseWidth,
+            strokeOpacity: highlighted ? Math.min(0.95, edge.baseOpacity + 0.12) : edge.baseOpacity,
             strokeColor: highlighted ? '#2563EB' : '#94A3B8',
         };
     }), [layoutEdges]);
