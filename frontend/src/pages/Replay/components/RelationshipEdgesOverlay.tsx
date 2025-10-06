@@ -22,6 +22,7 @@ interface RawRelationshipEdge {
     ys?: unknown;
     line_width?: unknown;
     line_alpha?: unknown;
+    is_backbone?: unknown;
 }
 
 interface RawRangeMetadata {
@@ -35,6 +36,8 @@ interface RawRangeMetadata {
 interface RelationshipEdgesResponse {
     nodes?: RawRelationshipNode[];
     edges?: RawRelationshipEdge[];
+    edges_backbone?: RawRelationshipEdge[];
+    edges_rest?: RawRelationshipEdge[];
     layout?: Record<string, { x?: unknown; y?: unknown }>;
     x_range?: RawRangeMetadata;
     y_range?: RawRangeMetadata;
@@ -52,12 +55,16 @@ interface DerivedEdge {
     end: { x: number; y: number };
     width: number;
     opacity: number;
+    strength: number;
+    isBackbone: boolean;
+    isWeak: boolean;
     highlighted: boolean;
 }
 
 interface DerivedGeometry {
     edges: DerivedEdge[];
     viewBox: { minX: number; minY: number; width: number; height: number } | null;
+    hasWeakEdges: boolean;
 }
 
 interface HighlightEventDetail {
@@ -161,6 +168,7 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
     const edgeKeysRef = useRef<Set<string>>(new Set());
     const aliasLookupRef = useRef<Map<string, string>>(new Map());
     const [version, setVersion] = useState(0);
+    const [showWeakEdges, setShowWeakEdges] = useState(true);
 
     useEffect(() => {
         const element = containerRef.current;
@@ -232,6 +240,20 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
     }, [payload, active]);
 
     useEffect(() => {
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<{ show?: boolean }>).detail;
+            if (!detail || typeof detail.show !== 'boolean') {
+                return;
+            }
+            setShowWeakEdges(detail.show);
+        };
+        window.addEventListener('relationship:set-show-weak-edges', handler as EventListener);
+        return () => {
+            window.removeEventListener('relationship:set-show-weak-edges', handler as EventListener);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!active) {
             return undefined;
         }
@@ -276,7 +298,7 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
         if (!active || !payload) {
             aliasLookupRef.current = aliasLookup;
             edgeKeysRef.current = new Set();
-            return { edges: [], viewBox: null };
+            return { edges: [], viewBox: null, hasWeakEdges: false };
         }
 
         (payload.nodes ?? []).forEach((node) => {
@@ -314,29 +336,54 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             });
         }
 
-        const parsedEdges = (payload.edges ?? []).flatMap((edge) => {
-            const rawSource = normaliseToken(edge.source);
-            const rawTarget = normaliseToken(edge.target);
-            if (!rawSource || !rawTarget) {
-                return [] as const;
-            }
-            const source = aliasLookup.get(rawSource) ?? rawSource;
-            const target = aliasLookup.get(rawTarget) ?? rawTarget;
-            const strength = clampStrength(parseNumeric(edge.strength));
-            const xs = parseCoordinateArray(edge.xs);
-            const ys = parseCoordinateArray(edge.ys);
-            const lineWidth = parseNumeric(edge.line_width);
-            const lineAlpha = parseNumeric(edge.line_alpha);
-            return [{
-                source,
-                target,
-                strength,
-                xs,
-                ys,
-                lineWidth,
-                lineAlpha,
-            }];
-        });
+        type ParsedEdge = {
+            source: string;
+            target: string;
+            strength: number;
+            xs?: number[];
+            ys?: number[];
+            lineWidth?: number;
+            lineAlpha?: number;
+            isBackbone: boolean;
+        };
+
+        const edgesByKey = new Map<string, ParsedEdge>();
+        const ingestEdges = (edges: RawRelationshipEdge[] | undefined, fallbackIsBackbone: boolean) => {
+            (edges ?? []).forEach((edge) => {
+                const rawSource = normaliseToken(edge.source);
+                const rawTarget = normaliseToken(edge.target);
+                if (!rawSource || !rawTarget) {
+                    return;
+                }
+                const source = aliasLookup.get(rawSource) ?? rawSource;
+                const target = aliasLookup.get(rawTarget) ?? rawTarget;
+                const strength = clampStrength(parseNumeric(edge.strength));
+                const xs = parseCoordinateArray(edge.xs);
+                const ys = parseCoordinateArray(edge.ys);
+                const lineWidth = parseNumeric(edge.line_width);
+                const lineAlpha = parseNumeric(edge.line_alpha);
+                const isBackbone = typeof edge.is_backbone === 'boolean'
+                    ? edge.is_backbone
+                    : fallbackIsBackbone;
+                const key = makeEdgeKey(source, target);
+                edgesByKey.set(key, {
+                    source,
+                    target,
+                    strength,
+                    xs,
+                    ys,
+                    lineWidth,
+                    lineAlpha,
+                    isBackbone,
+                });
+            });
+        };
+
+        ingestEdges(payload.edges_backbone, true);
+        ingestEdges(payload.edges_rest, false);
+        if (edgesByKey.size === 0) {
+            ingestEdges(payload.edges, false);
+        }
 
         const xRange = parseRangeMetadata(payload.x_range);
         const yRange = parseRangeMetadata(payload.y_range);
@@ -347,11 +394,12 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             });
             aliasLookupRef.current = aliasLookup;
             edgeKeysRef.current = new Set();
-            return { edges: [], viewBox: null };
+            return { edges: [], viewBox: null, hasWeakEdges: false };
         }
 
+        let hasWeakEdges = false;
         const results: DerivedEdge[] = [];
-        parsedEdges.forEach((edge) => {
+        edgesByKey.forEach((edge) => {
             let startX: number | undefined;
             let startY: number | undefined;
             let endX: number | undefined;
@@ -402,9 +450,24 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
             }
 
             const baseWidth = edge.lineWidth ?? (1 + 2.5 * edge.strength);
-            const width = Math.max(0.2, baseWidth);
+            let width = Math.max(0.2, baseWidth);
             const baseOpacity = edge.lineAlpha ?? (0.3 + 0.6 * edge.strength);
-            const opacity = Math.max(0, Math.min(0.95, baseOpacity));
+            let opacity = Math.max(0, Math.min(0.95, baseOpacity));
+            if (edge.isBackbone) {
+                width = Math.max(width, 2.4);
+                opacity = Math.max(opacity, 0.65);
+            } else {
+                width = Math.min(Math.max(width, 1.2), 1.6);
+                opacity = Math.min(Math.max(opacity, 0.35), 0.5);
+            }
+
+            const isWeak = !edge.isBackbone && edge.strength < 0.3;
+            if (isWeak) {
+                hasWeakEdges = true;
+                if (!showWeakEdges) {
+                    return;
+                }
+            }
 
             results.push({
                 key: makeEdgeKey(edge.source, edge.target),
@@ -412,11 +475,17 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
                 end: { x: endX, y: endY },
                 width,
                 opacity,
+                strength: edge.strength,
+                isBackbone: edge.isBackbone,
+                isWeak,
                 highlighted: false,
             });
         });
 
         const sortedEdges = [...results].sort((a, b) => {
+            if (a.isBackbone !== b.isBackbone) {
+                return a.isBackbone ? 1 : -1;
+            }
             const opacityDiff = b.opacity - a.opacity;
             if (Math.abs(opacityDiff) > 1e-6) {
                 return opacityDiff;
@@ -427,21 +496,22 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
         aliasLookupRef.current = aliasLookup;
         edgeKeysRef.current = new Set(sortedEdges.map((edge) => edge.key));
 
-        if (results.length === 0) {
+        const width = Math.max(xRange.end - xRange.start, 1e-6);
+        const height = Math.max(yRange.end - yRange.start, 1e-6);
+
+        if (sortedEdges.length === 0) {
             console.debug('RelationshipEdgesOverlay: no edges to render', {
                 experimentId,
-                edgeCount: parsedEdges.length,
+                edgeCount: edgesByKey.size,
                 ranges: { x: xRange, y: yRange },
             });
         } else {
             console.debug('RelationshipEdgesOverlay: rendering edges', {
                 experimentId,
-                edgeCount: results.length,
+                edgeCount: sortedEdges.length,
                 ranges: { x: xRange, y: yRange },
             });
         }
-        const width = Math.max(xRange.end - xRange.start, 1e-6);
-        const height = Math.max(yRange.end - yRange.start, 1e-6);
 
         return {
             edges: sortedEdges,
@@ -451,11 +521,13 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
                 width,
                 height,
             },
+            hasWeakEdges,
         };
-    }, [payload, active, experimentId]);
+    }, [payload, active, experimentId, showWeakEdges]);
 
     const derivedEdges = geometry.edges;
     const viewBox = geometry.viewBox;
+    const hasWeakEdges = geometry.hasWeakEdges;
 
     const edgesWithHighlight = useMemo(() => derivedEdges.map((edge) => {
         const highlighted = highlightedEdges.current.has(edge.key);
@@ -481,36 +553,67 @@ const RelationshipEdgesOverlay: React.FC<RelationshipEdgesOverlayProps> = ({
     }
 
     return (
-        <svg
-            className="relationship-edges-overlay"
-            width={viewport.width}
-            height={viewport.height}
-            viewBox={`${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`}
-            preserveAspectRatio="none" // [FIX] preserveAspectRatio="none"
-            style={{
-                position: 'absolute',
-                inset: 0,
-                pointerEvents: 'none',
-                zIndex: 3,
-            }}
-        >
-            {edgesWithHighlight.map((edge) => (
-                <line
-                    key={edge.key}
-                    x1={edge.start.x}
-                    y1={edge.start.y}
-                    x2={edge.end.x}
-                    y2={edge.end.y}
-                    stroke={edge.stroke}
-                    strokeWidth={edge.strokeWidth}
-                    strokeOpacity={edge.strokeOpacity}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    vectorEffect="non-scaling-stroke"
-                    strokeDasharray={edge.highlighted ? '6 4' : undefined}
-                />
-            ))}
-        </svg>
+        <>
+            <svg
+                className="relationship-edges-overlay"
+                width={viewport.width}
+                height={viewport.height}
+                viewBox={`${viewBox.minX} ${viewBox.minY} ${viewBox.width} ${viewBox.height}`}
+                preserveAspectRatio="xMidYMid meet" // [FIX] align overlay scaling with main graph
+                style={{
+                    position: 'absolute',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    zIndex: 3,
+                }}
+            >
+                {edgesWithHighlight.map((edge) => (
+                    <line
+                        key={edge.key}
+                        x1={edge.start.x}
+                        y1={edge.start.y}
+                        x2={edge.end.x}
+                        y2={edge.end.y}
+                        stroke={edge.stroke}
+                        strokeWidth={edge.strokeWidth}
+                        strokeOpacity={edge.strokeOpacity}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke"
+                        strokeDasharray={edge.highlighted ? '6 4' : undefined}
+                    />
+                ))}
+            </svg>
+            {hasWeakEdges ? (
+                <div
+                    style={{
+                        position: 'absolute',
+                        bottom: 12,
+                        right: 12,
+                        pointerEvents: 'none',
+                        zIndex: 2,
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={() => setShowWeakEdges((value) => !value)}
+                        style={{
+                            pointerEvents: 'auto',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            borderRadius: 6,
+                            border: '1px solid rgba(148, 163, 184, 0.6)',
+                            background: 'rgba(15, 23, 42, 0.65)',
+                            color: '#F8FAFC',
+                            cursor: 'pointer',
+                        }}
+                        title="Toggle display of weak relationship edges"
+                    >
+                        {showWeakEdges ? 'Hide weak edges' : 'Show weak edges'}
+                    </button>
+                </div>
+            ) : null}
+        </>
     );
 };
 

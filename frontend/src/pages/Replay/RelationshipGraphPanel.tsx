@@ -5,9 +5,25 @@ import React, {
     useRef,
     useState,
 } from 'react';
+import {
+    forceSimulation,
+    forceLink,
+    forceManyBody,
+    forceCenter,
+    forceCollide,
+    forceX,
+    forceY,
+    type SimulationNodeDatum,
+    type SimulationLinkDatum,
+} from 'd3-force';
 import { useTranslation } from 'react-i18next';
 import { fetchCustom } from '../../components/fetch';
 import type { Agent } from './components/type';
+
+// 兜底：当 props.agents 不带 connections 时，我们再拉一次 profile
+interface AgentWithMaybeConnections extends Agent {
+    connections?: Array<{ source?: string | number; target?: string | number; strength?: number }>;
+}
 
 interface NodeSelectDetail {
     id?: string;
@@ -29,6 +45,7 @@ interface RawRelationshipNode {
     size?: unknown;
     x?: unknown;
     y?: unknown;
+    community?: unknown;
 }
 
 interface RawRelationshipEdge {
@@ -37,60 +54,91 @@ interface RawRelationshipEdge {
     strength?: unknown;
     xs?: unknown;
     ys?: unknown;
+    line_width?: unknown;
+    line_alpha?: unknown;
+}
+
+interface RawRangeMetadata {
+    start?: unknown;
+    end?: unknown;
+    min?: unknown;
+    max?: unknown;
+    span?: unknown;
 }
 
 interface RelationshipEdgesResponse {
     nodes?: RawRelationshipNode[];
     edges?: RawRelationshipEdge[];
+    edges_backbone?: RawRelationshipEdge[];
+    edges_rest?: RawRelationshipEdge[];
     layout?: Record<string, { x?: unknown; y?: unknown }>;
+    x_range?: RawRangeMetadata;
+    y_range?: RawRangeMetadata;
 }
 
-interface GraphNodeInput {
+interface BackendNode {
     id: string;
     label: string;
-    agentId?: number;
-    sentiment?: number;
     color: string;
-    size: number;
-    layoutX?: number;
-    layoutY?: number;
+    radius: number;
+    community: number;
+    x?: number;
+    y?: number;
 }
 
-interface GraphEdgeInput {
+interface BackendEdge {
+    key: string;
     source: string;
     target: string;
     strength: number;
     xs?: number[];
     ys?: number[];
+    layer: 'backbone' | 'rest';
 }
 
-interface LayoutNode extends GraphNodeInput {
-    x: number;
-    y: number;
+interface ForceNodeDatum extends SimulationNodeDatum {
+    id: string;
+    radius: number;
+    community: number;
+    x?: number;
+    y?: number;
+    vx?: number;
+    vy?: number;
 }
 
-interface LayoutEdge {
-    key: string;
+interface ForceLinkDatum extends SimulationLinkDatum<ForceNodeDatum> {
     source: string;
     target: string;
     strength: number;
-    points: { x: number; y: number }[];
-    baseWidth: number;
-    baseOpacity: number;
+    isInterCommunity: boolean;
 }
 
-interface HighlightEventDetail {
-    source?: string | number;
-    target?: string | number;
+interface RangeMetadata {
+    min: number;
+    max: number;
+    start: number;
+    end: number;
+    span: number;
 }
 
-const DEFAULT_STRENGTH = 0.4;
-const DEFAULT_NODE_SIZE = 24;
-const HIGHLIGHT_DURATION_MS = 600;
-const DOM_DELTA_LINE = 1;
-const DOM_DELTA_PAGE = 2;
+const DEFAULT_NODE_RADIUS = 18;
+const MIN_STRENGTH = 0.1;
+const BASE_DISTANCE = 200;
+const MAX_DISTANCE = 500;
+const MIN_DISTANCE = 30;
 
-const normaliseToken = (value: unknown): string | undefined => {
+const COMMUNITY_COLOURS = [
+    '#0EA5E9',
+    '#F97316',
+    '#10B981',
+    '#8B5CF6',
+    '#F43F5E',
+    '#F59E0B',
+    '#6366F1',
+    '#22C55E',
+];
+
+const toStringId = (value: unknown): string | undefined => {
     if (value === null || value === undefined) {
         return undefined;
     }
@@ -98,50 +146,13 @@ const normaliseToken = (value: unknown): string | undefined => {
         const trimmed = value.trim();
         return trimmed === '' ? undefined : trimmed;
     }
-    if (typeof value === 'number') {
-        if (!Number.isFinite(value)) {
-            return undefined;
-        }
+    if (typeof value === 'number' && Number.isFinite(value)) {
         return String(value);
     }
     return String(value);
 };
 
-const parseNumeric = (value: unknown): number | undefined => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-    }
-    if (typeof value === 'string') {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : undefined;
-    }
-    return undefined;
-};
-
-const parseCoordinateArray = (value: unknown): number[] | undefined => {
-    if (!Array.isArray(value)) {
-        return undefined;
-    }
-    const coords = value
-        .map((entry) => parseNumeric(entry))
-        .filter((entry): entry is number => entry !== undefined);
-    return coords.length >= 2 ? coords : undefined;
-};
-
-const clampStrength = (value: number | undefined): number => {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        return DEFAULT_STRENGTH;
-    }
-    if (value < 0.1) {
-        return 0.1;
-    }
-    if (value > 1) {
-        return 1;
-    }
-    return value;
-};
-
-const normaliseStrength = (value: unknown): number | undefined => {
+const toNumber = (value: unknown): number | undefined => {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value;
     }
@@ -152,50 +163,105 @@ const normaliseStrength = (value: unknown): number | undefined => {
     return undefined;
 };
 
-const makeEdgeKey = (a: string, b: string): string => [a, b].sort().join('::');
+// === BEGIN: alias & sentiment helpers ===
+const normalizeToken = (v: unknown): string | undefined => {
+    if (v === null || v === undefined) return undefined;
+    if (typeof v === 'string') {
+        const s = v.trim();
+        return s ? s : undefined;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+    return String(v);
+};
 
 const resolveSentiment = (status: unknown): number | undefined => {
-    if (status === null || status === undefined) {
-        return undefined;
-    }
-    if (typeof status === 'number') {
-        return status;
-    }
+    if (status === null || status === undefined) return undefined;
+    if (typeof status === 'number') return status;
     if (typeof status === 'string') {
-        const numeric = Number(status);
-        if (!Number.isNaN(numeric)) {
-            return numeric;
-        }
-        try {
-            const parsed = JSON.parse(status);
-            return resolveSentiment(parsed);
-        } catch (err) {
-            console.error('failed to parse sentiment string', err);
-            return undefined;
-        }
+        const n = Number(status);
+        if (!Number.isNaN(n)) return n;
+        try { return resolveSentiment(JSON.parse(status)); } catch { return undefined; }
     }
     if (typeof status === 'object') {
-        if (status && 'sentiment' in status) {
-            return resolveSentiment((status as Record<string, unknown>).sentiment);
-        }
-        if (status && 'status' in status) {
-            return resolveSentiment((status as Record<string, unknown>).status);
-        }
+        const obj = status as Record<string, unknown>;
+        if ('sentiment' in obj) return resolveSentiment(obj.sentiment);
+        if ('status' in obj) return resolveSentiment(obj.status);
     }
     return undefined;
 };
 
-const sentimentToColour = (sentiment: number | undefined): string => {
-    if (typeof sentiment !== 'number' || Number.isNaN(sentiment)) {
-        return '#00FF00';
-    }
-    if (sentiment >= 0.2) {
-        return '#0000FF';
-    }
-    if (sentiment <= -0.2) {
-        return '#FF0000';
-    }
+const sentimentToColour = (s: number | undefined): string => {
+    if (typeof s !== 'number' || Number.isNaN(s)) return '#00FF00'; // 中立
+    if (s >= 0.2) return '#0000FF';  // 积极
+    if (s <= -0.2) return '#FF0000'; // 消极
     return '#00FF00';
+};
+// === END: alias & sentiment helpers ===
+
+// 停用词过滤（避免伪节点）
+const STOP_WORDS = new Set([
+    'sentiment',
+    'adopted',
+    'emotion',
+    'status',
+    'status_summary',
+    'message_source',
+    'message_source:company',
+    'message',
+    'summary',
+]);
+
+const pruneIfStopWord = (id?: string): boolean =>
+    !!id && STOP_WORDS.has(id.trim().toLowerCase());
+
+const parseCoordinates = (raw: unknown): number[] | undefined => {
+    if (!Array.isArray(raw)) {
+        return undefined;
+    }
+    const coords = raw
+        .map((entry) => toNumber(entry))
+        .filter((entry): entry is number => entry !== undefined);
+    return coords.length >= 2 ? coords : undefined;
+};
+
+const clampStrength = (strength: number | undefined): number => {
+    if (typeof strength !== 'number' || Number.isNaN(strength)) {
+        return MIN_STRENGTH;
+    }
+    if (strength < 0.05) {
+        return 0.05;
+    }
+    if (strength > 1) {
+        return 1;
+    }
+    return strength;
+};
+
+const getCommunityStroke = (community: number): string => {
+    if (!Number.isInteger(community) || community < 0) {
+        return '#475569';
+    }
+    return COMMUNITY_COLOURS[community % COMMUNITY_COLOURS.length];
+};
+
+const buildPath = (xs: number[], ys: number[]): string | null => {
+    const limit = Math.min(xs.length, ys.length);
+    if (limit < 2) {
+        return null;
+    }
+    const path: string[] = [];
+    path.push(`M ${xs[0]} ${ys[0]}`);
+    if (limit === 2) {
+        path.push(`L ${xs[1]} ${ys[1]}`);
+    } else if (limit === 3) {
+        path.push(`Q ${xs[1]} ${ys[1]} ${xs[2]} ${ys[2]}`);
+    } else {
+        path.push(`C ${xs[1]} ${ys[1]} ${xs[2]} ${ys[2]} ${xs[3]} ${ys[3]}`);
+        for (let i = 4; i < limit; i += 1) {
+            path.push(`L ${xs[i]} ${ys[i]}`);
+        }
+    }
+    return path.join(' ');
 };
 
 const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
@@ -205,63 +271,130 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     onNodeSelect,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [graphPayload, setGraphPayload] = useState<RelationshipEdgesResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [viewport, setViewport] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-    const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([]);
-    const [layoutEdges, setLayoutEdges] = useState<LayoutEdge[]>([]);
+    const [payload, setPayload] = useState<RelationshipEdgesResponse | null>(null);
+    const [viewport, setViewport] = useState({ width: 0, height: 0 });
     const [transform, setTransform] = useState({ scale: 1, translateX: 0, translateY: 0 });
-    const aliasLookupRef = useRef<Map<string, string>>(new Map());
-    const edgeKeysRef = useRef<Set<string>>(new Set());
-    const highlightedRef = useRef<Set<string>>(new Set());
-    const highlightTimeoutsRef = useRef<Map<string, number>>(new Map());
-    const previousPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+    const [showBackboneOnly, setShowBackboneOnly] = useState(false);
+    const [minStrength, setMinStrength] = useState(0.05);
+    const [backboneCoverage, setBackboneCoverage] = useState(0.6);
+    const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
+    const [range, setRange] = useState<{ x: RangeMetadata; y: RangeMetadata } | null>(null);
+    const highlightRef = useRef<Set<string>>(new Set());
+    const highlightTimerRef = useRef<Map<string, number>>(new Map());
+    const [highlightVersion, setHighlightVersion] = useState(0);
     const { t } = useTranslation('replay');
+    // 兜底用的 agents 列表（可能自带 connections）
+    const [agentsForEdges, setAgentsForEdges] = useState<AgentWithMaybeConnections[]>(
+        Array.isArray(agents) ? (agents as AgentWithMaybeConnections[]) : [],
+    );
+
+    // 拖拽相关
+    const draggingRef = useRef(false);
+    const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+    // 拖拽事件
+    const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        draggingRef.current = true;
+        lastPointRef.current = { x: e.clientX, y: e.clientY };
+    }, []);
+
+    const onPointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        if (!draggingRef.current || !lastPointRef.current) {
+            return;
+        }
+        const dx = e.clientX - lastPointRef.current.x;
+        const dy = e.clientY - lastPointRef.current.y;
+        lastPointRef.current = { x: e.clientX, y: e.clientY };
+        setTransform((prev) => ({
+            ...prev,
+            translateX: prev.translateX + dx / prev.scale,
+            translateY: prev.translateY + dy / prev.scale,
+        }));
+    }, []);
+
+    const onPointerUp = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        draggingRef.current = false;
+        lastPointRef.current = null;
+    }, []);
 
     useEffect(() => {
         const element = containerRef.current;
         if (!element) {
             return;
         }
-        const updateSize = () => {
+        const handleResize = () => {
             const rect = element.getBoundingClientRect();
-            setViewport((prev) => {
-                if (prev.width === rect.width && prev.height === rect.height) {
-                    return prev;
-                }
-                return { width: rect.width, height: rect.height };
-            });
+            setViewport({ width: rect.width, height: rect.height });
         };
-        updateSize();
-        const resizeObserver = typeof ResizeObserver !== 'undefined'
-            ? new ResizeObserver(() => updateSize())
-            : null;
-        resizeObserver?.observe(element);
-        window.addEventListener('resize', updateSize);
+        handleResize();
+        const observer = new ResizeObserver(() => handleResize());
+        observer.observe(element);
+        window.addEventListener('resize', handleResize);
         return () => {
-            resizeObserver?.disconnect();
-            window.removeEventListener('resize', updateSize);
+            observer.disconnect();
+            window.removeEventListener('resize', handleResize);
         };
     }, []);
 
     useEffect(() => {
-        highlightedRef.current.clear();
-        highlightTimeoutsRef.current.forEach((handle) => window.clearTimeout(handle));
-        highlightTimeoutsRef.current.clear();
-        previousPositionsRef.current.clear();
+        highlightRef.current.clear();
+        highlightTimerRef.current.forEach((handle) => window.clearTimeout(handle));
+        highlightTimerRef.current.clear();
         setTransform({ scale: 1, translateX: 0, translateY: 0 });
-    }, [experimentId]);
+        setShowBackboneOnly(false);
+        setMinStrength(0.05);
+        setBackboneCoverage(0.6);
+        setPositions(new Map());
+        // 同步外部 agents
+        setAgentsForEdges(
+            Array.isArray(agents) ? (agents as AgentWithMaybeConnections[]) : [],
+        );
+    }, [experimentId, agents]);
+
+    // 如果当前 agents 没有 connections，自动兜底拉取一份（仅在需要时发起）
+    useEffect(() => {
+        const hasAnyConnections =
+            Array.isArray(agentsForEdges)
+            && agentsForEdges.some(
+                (agent) => Array.isArray((agent as AgentWithMaybeConnections).connections)
+                    && ((agent as AgentWithMaybeConnections).connections?.length ?? 0) > 0,
+            );
+        if (!experimentId || hasAnyConnections) {
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetchCustom(`/api/experiments/${experimentId}/agents/-/profile`);
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                if (!cancelled && Array.isArray(data)) {
+                    setAgentsForEdges(data as AgentWithMaybeConnections[]);
+                }
+            } catch {
+                // 忽略兜底失败
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [experimentId, agentsForEdges]);
 
     useEffect(() => {
         if (!experimentId) {
-            setGraphPayload(null);
+            setPayload(null);
             setError(null);
             return;
         }
         let cancelled = false;
         const controller = new AbortController();
-        const loadEdges = async () => {
+        const fetchEdges = async () => {
             setLoading(true);
             setError(null);
             try {
@@ -272,9 +405,30 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                const payload = (await response.json()) as RelationshipEdgesResponse;
+                const json = (await response.json()) as RelationshipEdgesResponse;
+                // [DEBUG] relationship-edges payload counters
+                try {
+                    console.debug('[relationship-edges]', {
+                        nodes: Array.isArray((json as any)?.nodes) ? (json as any).nodes.length : undefined,
+                        edges: Array.isArray((json as any)?.edges) ? (json as any).edges.length : undefined,
+                        edges_backbone: Array.isArray((json as any)?.edges_backbone)
+                            ? (json as any).edges_backbone.length
+                            : undefined,
+                        edges_rest: Array.isArray((json as any)?.edges_rest)
+                            ? (json as any).edges_rest.length
+                            : undefined,
+                        agentsForEdges_hasConnections:
+                            Array.isArray(agentsForEdges)
+                                && agentsForEdges.some(
+                                    (agent) => Array.isArray((agent as any).connections)
+                                        && ((agent as any).connections?.length ?? 0) > 0,
+                                ),
+                    });
+                } catch (_) {
+                    // noop
+                }
                 if (!cancelled) {
-                    setGraphPayload(payload);
+                    setPayload(json);
                 }
             } catch (err) {
                 if (cancelled) {
@@ -283,615 +437,710 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 if (err instanceof DOMException && err.name === 'AbortError') {
                     return;
                 }
-                console.error('Failed to load relationship edges', err);
-                setGraphPayload(null);
+                console.error('Failed to load relationship graph payload', err);
                 setError(err instanceof Error ? err.message : String(err));
+                setPayload(null);
             } finally {
                 if (!cancelled) {
                     setLoading(false);
                 }
             }
         };
-        void loadEdges();
+        void fetchEdges();
         return () => {
             cancelled = true;
             controller.abort();
         };
-    }, [experimentId]);
+    }, [experimentId, agentsForEdges]);
 
-    useEffect(() => () => {
-        highlightTimeoutsRef.current.forEach((handle) => window.clearTimeout(handle));
-        highlightTimeoutsRef.current.clear();
-    }, []);
+    const parsedData = useMemo(() => {
+        if (!payload) return null;
 
-    const graphData = useMemo(() => {
-        const aliasLookup = new Map<string, string>();
-        const layoutLookup = new Map<string, { x: number; y: number }>();
-        const nodesByCanonical = new Map<string, GraphNodeInput>();
-        const edges: GraphEdgeInput[] = [];
+        // 别名表：raw token -> canonical id
+        const alias = new Map<string, string>();
+        const nodesById = new Map<string, BackendNode>();
 
-        const registerAlias = (canonical: string, token?: string | null) => {
-            if (!token) {
-                return;
-            }
-            aliasLookup.set(token, canonical);
+        const registerAlias = (canonical: string, ...tokens: Array<string | undefined>) => {
+            tokens.forEach((t) => { if (t) alias.set(t, canonical); });
         };
 
-        const recordLayout = (token: string | undefined, x?: number, y?: number) => {
-            if (!token) {
-                return;
-            }
-            if (typeof x !== 'number' || typeof y !== 'number') {
-                return;
-            }
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                return;
-            }
-            layoutLookup.set(token, { x, y });
-        };
+        // 1) 先放入后端节点，并记录别名；坐标优先用 layout 覆盖
+        (payload.nodes ?? []).forEach((raw) => {
+            const idTok = normalizeToken(raw.id);
+            const nameTok = normalizeToken(raw.name);
+            const labelRaw = typeof raw.label === 'string' ? raw.label.trim() : '';
+            const canonical = idTok ?? nameTok ?? labelRaw;
+            if (!canonical) return;
 
-        if (graphPayload?.layout && typeof graphPayload.layout === 'object') {
-            Object.entries(graphPayload.layout).forEach(([key, value]) => {
-                const x = parseNumeric((value as Record<string, unknown>).x);
-                const y = parseNumeric((value as Record<string, unknown>).y);
-                if (x !== undefined && y !== undefined) {
-                    recordLayout(key, x, y);
-                }
+            const label = labelRaw || nameTok || idTok || canonical;
+            const community = Number.isFinite(raw.community as number) ? Number(raw.community) : 0;
+            const size = toNumber(raw.size) ?? DEFAULT_NODE_RADIUS;
+            const defaultColor = typeof raw.color === 'string' && raw.color ? raw.color : '#CBD5F5';
+
+            const layout = payload.layout ?? {};
+            const lx = layout[canonical]?.x ?? layout[idTok ?? '']?.x ?? layout[nameTok ?? '']?.x;
+            const ly = layout[canonical]?.y ?? layout[idTok ?? '']?.y ?? layout[nameTok ?? '']?.y;
+
+            nodesById.set(canonical, {
+                id: canonical,
+                label,
+                color: defaultColor,          // 先占位，稍后由 agents 覆盖
+                radius: size,
+                community,
+                x: toNumber(lx),
+                y: toNumber(ly),
             });
+
+            registerAlias(canonical, canonical, idTok, nameTok, label);
+        });
+
+        // 2) 用 agents 覆盖/补充节点，颜色来自 sentiment，确保与默认视图同步
+        agentsForEdges.forEach((a) => {
+            const idTok = a.id != null ? String(a.id) : undefined;
+            const nameTok = a.name ? String(a.name).trim() : undefined;
+            const canonical = idTok ?? nameTok;
+            if (!canonical) return;
+
+            const existing = nodesById.get(canonical);
+            const sentiment = resolveSentiment(a.status);
+            const color = sentimentToColour(sentiment);
+
+            nodesById.set(canonical, {
+                id: canonical,
+                label: nameTok || idTok || canonical,
+                color,
+                radius: existing?.radius ?? DEFAULT_NODE_RADIUS,
+                community: existing?.community ?? 0,
+                x: existing?.x,
+                y: existing?.y,
+            });
+
+            registerAlias(canonical, canonical, idTok, nameTok);
+        });
+
+        for (const id of Array.from(nodesById.keys())) {
+            if (pruneIfStopWord(id)) {
+                nodesById.delete(id);
+            }
         }
 
-        const upsertNode = (canonical: string, patch: Partial<GraphNodeInput>) => {
-            const existing = nodesByCanonical.get(canonical);
-            const next: GraphNodeInput = {
-                id: canonical,
-                label: patch.label ?? existing?.label ?? canonical,
-                agentId: patch.agentId ?? existing?.agentId,
-                sentiment: patch.sentiment ?? existing?.sentiment,
-                color: patch.color ?? existing?.color ?? '#CBD5E1',
-                size: patch.size ?? existing?.size ?? DEFAULT_NODE_SIZE,
-                layoutX: patch.layoutX ?? existing?.layoutX,
-                layoutY: patch.layoutY ?? existing?.layoutY,
-            };
-            nodesByCanonical.set(canonical, next);
-        };
+        for (const [token, canonical] of Array.from(alias.entries())) {
+            if (pruneIfStopWord(canonical)) {
+                alias.delete(token);
+            }
+        }
 
-        (graphPayload?.nodes ?? []).forEach((node) => {
-            const idToken = normaliseToken(node.id);
-            const nameToken = normaliseToken(node.name);
-            const canonical = idToken ?? nameToken;
-            if (!canonical) {
+        const nodeIdSet = new Set<string>(Array.from(nodesById.keys()));
+
+        // 3) 解析边：source/target 通过别名解析到 canonical id
+        const edges: BackendEdge[] = [];
+        const ingest = (raw: RawRelationshipEdge, layer: 'backbone' | 'rest') => {
+            const sTok = normalizeToken(raw.source);
+            const tTok = normalizeToken(raw.target);
+            if (!sTok || !tTok) return;
+
+            // 先做别名解析；如果别名里没有，就用原 token 作为 canonical
+            const source = alias.get(sTok) ?? sTok;
+            const target = alias.get(tTok) ?? tTok;
+            if (pruneIfStopWord(source) || pruneIfStopWord(target)) {
                 return;
             }
-            const layoutX = parseNumeric(node.x);
-            const layoutY = parseNumeric(node.y);
-            if (layoutX !== undefined && layoutY !== undefined) {
-                recordLayout(canonical, layoutX, layoutY);
-                recordLayout(idToken, layoutX, layoutY);
-                recordLayout(nameToken, layoutX, layoutY);
-            }
-            const label = (() => {
-                const raw = typeof node.label === 'string' ? node.label.trim() : '';
-                if (raw) {
-                    return raw;
+            if (source === target) return;
+
+            // 如果端点缺失，就现场补节点（避免把边丢掉 → 圆环 fallback）
+            const ensureNode = (canonical: string) => {
+                if (pruneIfStopWord(canonical)) {
+                    return;
                 }
-                return nameToken ?? idToken ?? canonical;
-            })();
-            const color = (() => {
-                const raw = typeof node.color === 'string' ? node.color.trim() : '';
-                return raw || '#CBD5E1';
-            })();
-            const size = parseNumeric(node.size) ?? DEFAULT_NODE_SIZE;
-            const layoutEntry = layoutLookup.get(canonical) || layoutLookup.get(idToken ?? '') || layoutLookup.get(nameToken ?? '');
-            upsertNode(canonical, {
-                label,
-                color,
-                size,
-                layoutX: layoutEntry?.x ?? layoutX,
-                layoutY: layoutEntry?.y ?? layoutY,
-            });
-            registerAlias(canonical, canonical);
-            registerAlias(canonical, idToken ?? undefined);
-            registerAlias(canonical, nameToken ?? undefined);
-            registerAlias(canonical, label);
-        });
+                if (nodesById.has(canonical)) return;
 
-        agents.forEach((agent) => {
-            const canonical = agent.id != null ? String(agent.id) : normaliseToken(agent.name);
-            if (!canonical) {
-                return;
-            }
-            const sentiment = resolveSentiment(agent.status);
-            const color = sentimentToColour(sentiment);
-            const nameToken = agent.name ? String(agent.name).trim() : undefined;
-            const layoutEntry = layoutLookup.get(canonical) || layoutLookup.get(nameToken ?? '');
-            upsertNode(canonical, {
-                agentId: agent.id,
-                sentiment,
-                color,
-                label: nameToken || canonical,
-                size: Math.max(nodesByCanonical.get(canonical)?.size ?? DEFAULT_NODE_SIZE, DEFAULT_NODE_SIZE),
-                layoutX: nodesByCanonical.get(canonical)?.layoutX ?? layoutEntry?.x,
-                layoutY: nodesByCanonical.get(canonical)?.layoutY ?? layoutEntry?.y,
-            });
-            registerAlias(canonical, canonical);
-            registerAlias(canonical, nameToken ?? undefined);
-            if (agent.id != null) {
-                registerAlias(canonical, String(agent.id));
-            }
-        });
+                // 颜色优先跟随 agents（按 name 或 id 匹配），匹配不到就用中立绿
+                const matchedAgent = agentsForEdges.find(
+                    (a) => String(a.id) === canonical || (a.name && a.name.trim() === canonical),
+                );
 
-        (graphPayload?.edges ?? []).forEach((edge) => {
-            const rawSource = normaliseToken(edge.source);
-            const rawTarget = normaliseToken(edge.target);
-            if (!rawSource || !rawTarget) {
-                return;
-            }
-            const source = aliasLookup.get(rawSource) ?? rawSource;
-            const target = aliasLookup.get(rawTarget) ?? rawTarget;
-            if (source === target) {
-                return;
-            }
-            const xs = parseCoordinateArray(edge.xs);
-            const ys = parseCoordinateArray(edge.ys);
-            const strength = clampStrength(normaliseStrength(edge.strength));
+                const s = resolveSentiment(matchedAgent?.status);
+                const color = sentimentToColour(s);
+
+                // 尝试从 layout 里拿初始坐标
+                const lx = payload.layout?.[canonical]?.x;
+                const ly = payload.layout?.[canonical]?.y;
+
+                nodesById.set(canonical, {
+                    id: canonical,
+                    label: matchedAgent?.name?.trim() || canonical,
+                    color,
+                    radius: DEFAULT_NODE_RADIUS,
+                    community: 0,
+                    x: toNumber(lx),
+                    y: toNumber(ly),
+                });
+
+                nodeIdSet.add(canonical);
+                // 自反别名，后续能继续解析到它
+                alias.set(canonical, canonical);
+            };
+
+            ensureNode(source);
+            ensureNode(target);
+
+            const strength = clampStrength(toNumber(raw.strength));
             edges.push({
+                key: [source, target].sort().join('::'),
                 source,
                 target,
                 strength,
-                xs,
-                ys,
+                xs: parseCoordinates(raw.xs),
+                ys: parseCoordinates(raw.ys),
+                layer,
             });
-            registerAlias(source, rawSource);
-            registerAlias(target, rawTarget);
-        });
-
-        aliasLookupRef.current = aliasLookup;
-        edgeKeysRef.current = new Set(edges.map((edge) => makeEdgeKey(edge.source, edge.target)));
-
-        return {
-            nodes: Array.from(nodesByCanonical.values()),
-            edges,
         };
-    }, [agents, graphPayload]);
+
+        // --- 正确的边源选择 & 回退 ---
+        const bbSrc = (Array.isArray(payload.edges_backbone) && payload.edges_backbone.length > 0)
+            ? payload.edges_backbone
+            : [];
+
+        const restSrc = (Array.isArray(payload.edges_rest) && payload.edges_rest.length > 0)
+            ? payload.edges_rest
+            : [];
+
+        if (bbSrc.length === 0 && restSrc.length === 0 && Array.isArray(payload.edges) && payload.edges.length > 0) {
+            payload.edges.forEach((e: any) => ingest(e, e?.is_backbone ? 'backbone' : 'rest'));
+        } else {
+            bbSrc.forEach((e) => ingest(e, 'backbone'));
+            restSrc.forEach((e) => ingest(e, 'rest'));
+        }
+
+        // === [FALLBACK] 如果接口没有任何边，从 agentsForEdges[].connections 兜底生成 ===
+        if (edges.length === 0 && Array.isArray(agentsForEdges)) {
+            const ensureNode = (canonical: string) => {
+                if (pruneIfStopWord(canonical) || nodesById.has(canonical)) return;
+
+                const matchedAgent = agentsForEdges.find(
+                    (a) => String(a.id) === canonical || (a.name && a.name.trim() === canonical),
+                );
+                const s = resolveSentiment(matchedAgent?.status);
+                const color = sentimentToColour(s);
+                const lx = payload.layout?.[canonical]?.x;
+                const ly = payload.layout?.[canonical]?.y;
+
+                nodesById.set(canonical, {
+                    id: canonical,
+                    label: matchedAgent?.name?.trim() || canonical,
+                    color,
+                    radius: DEFAULT_NODE_RADIUS,
+                    community: 0,
+                    x: toNumber(lx),
+                    y: toNumber(ly),
+                });
+
+                alias.set(canonical, canonical);
+            };
+
+            agentsForEdges.forEach((a) => {
+                const agentCanonical = normalizeToken(a.id) ?? normalizeToken(a.name);
+                const conns: any[] | undefined = (a as any)?.connections;
+                if (!Array.isArray(conns)) return;
+
+                conns.forEach((c) => {
+                    if (!c) return;
+                    const sTok = normalizeToken(c.source) ?? agentCanonical;
+                    const tTok = normalizeToken(c.target);
+                    if (!tTok || !sTok) return;
+
+                    const src = alias.get(sTok) ?? sTok;
+                    const tgt = alias.get(tTok) ?? tTok;
+                    if (pruneIfStopWord(src) || pruneIfStopWord(tgt) || src === tgt) return;
+
+                    ensureNode(src);
+                    ensureNode(tgt);
+
+                    const strength = clampStrength(toNumber(c.strength));
+                    edges.push({
+                        key: [src, tgt].sort().join('::'),
+                        source: src,
+                        target: tgt,
+                        strength,
+                        layer: 'rest',
+                    });
+                });
+            });
+
+            try {
+                console.debug('[relationship-edges:fallback-from-agents]', {
+                    used: edges.length > 0,
+                    edgeCount: edges.length,
+                });
+            } catch (_) {}
+        }
+
+        return { nodes: Array.from(nodesById.values()), edges };
+    }, [payload, agentsForEdges]);
 
     useEffect(() => {
-        if (!visible) {
-            return;
-        }
-        const { width, height } = viewport;
-        if (width <= 0 || height <= 0) {
+        if (!parsedData || parsedData.nodes.length === 0) {
+            setPositions(new Map());
             return;
         }
 
-        if (graphData.nodes.length === 0) {
-            previousPositionsRef.current.clear();
-            setLayoutNodes([]);
-            setLayoutEdges([]);
+        const covered = parsedData.nodes.filter((node) => Number.isFinite(node.x) && Number.isFinite(node.y)).length;
+        const coverage = covered / parsedData.nodes.length;
+
+        if (coverage >= 0.8) {
+            const direct = new Map<string, { x: number; y: number }>();
+            parsedData.nodes.forEach((node) => {
+                if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+                    direct.set(node.id, { x: node.x!, y: node.y! });
+                }
+            });
+
+            const missing = parsedData.nodes.filter((node) => !direct.has(node.id));
+            if (missing.length > 0) {
+                const existingCoords = Array.from(direct.values());
+                const centroid = existingCoords.reduce(
+                    (acc, coord) => ({ x: acc.x + coord.x, y: acc.y + coord.y }),
+                    { x: 0, y: 0 },
+                );
+                if (existingCoords.length > 0) {
+                    centroid.x /= existingCoords.length;
+                    centroid.y /= existingCoords.length;
+                }
+                const radius = 120 + missing.length * 10;
+                missing.forEach((node, index) => {
+                    const angle = (index / missing.length) * Math.PI * 2;
+                    direct.set(node.id, {
+                        x: centroid.x + Math.cos(angle) * radius,
+                        y: centroid.y + Math.sin(angle) * radius,
+                    });
+                });
+            }
+
+            setPositions(direct);
             return;
         }
 
-        let minX = Number.POSITIVE_INFINITY;
-        let maxX = Number.NEGATIVE_INFINITY;
-        let minY = Number.POSITIVE_INFINITY;
-        let maxY = Number.NEGATIVE_INFINITY;
+        const nodesMap = new Map(parsedData.nodes.map((node) => [node.id, node]));
+        const forceNodes: ForceNodeDatum[] = parsedData.nodes.map((node) => ({
+            id: node.id,
+            radius: node.radius,
+            community: node.community,
+            x: node.x,
+            y: node.y,
+        }));
 
-        const includePoint = (x?: number, y?: number) => {
-            if (typeof x !== 'number' || typeof y !== 'number') {
-                return;
-            }
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                return;
-            }
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        };
+        if (!parsedData.edges.length) {
+            const fallback = new Map<string, { x: number; y: number }>();
+            const cx = viewport.width / 2 || 0;
+            const cy = viewport.height / 2 || 0;
+            const phi = (Math.sqrt(5) - 1) / 2;
+            const dtheta = 2 * Math.PI * phi;
+            const step = 22;
 
-        graphData.nodes.forEach((node) => includePoint(node.layoutX, node.layoutY));
-        graphData.edges.forEach((edge) => {
-            const xs = edge.xs;
-            const ys = edge.ys;
-            if (!xs || !ys) {
-                return;
-            }
-            const limit = Math.min(xs.length, ys.length);
-            if (limit >= 2) {
-                includePoint(xs[0], ys[0]);
-                includePoint(xs[limit - 1], ys[limit - 1]);
-            }
+            parsedData.nodes.forEach((node, index) => {
+                const r = step * Math.sqrt(index + 1);
+                const theta = index * dtheta;
+                fallback.set(node.id, {
+                    x: cx + r * Math.cos(theta),
+                    y: cy + r * Math.sin(theta),
+                });
+            });
+
+            setPositions(fallback);
+            return;
+        }
+
+        const communities = Array.from(new Set(parsedData.nodes.map((node) => node.community ?? 0))).sort(
+            (a, b) => a - b,
+        );
+        const R = 350;
+        const centers = new Map<number, { x: number; y: number }>();
+        communities.forEach((community, index) => {
+            const angle = (index / Math.max(1, communities.length)) * Math.PI * 2;
+            centers.set(community, { x: Math.cos(angle) * R, y: Math.sin(angle) * R });
         });
 
-        const hasGeometry = Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY);
+        const links: ForceLinkDatum[] = parsedData.edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+            strength: edge.strength,
+            isInterCommunity:
+                (nodesMap.get(edge.source)?.community ?? 0)
+                !== (nodesMap.get(edge.target)?.community ?? 0),
+        }));
 
-        let transformPoint: ((x: number, y: number) => { x: number; y: number }) | null = null;
-        if (hasGeometry) {
-            const padding = Math.max(40, Math.min(width, height) * 0.08);
-            const spanX = Math.max(maxX - minX, 1e-6);
-            const spanY = Math.max(maxY - minY, 1e-6);
-            const usableWidth = Math.max(width - padding * 2, 1);
-            const usableHeight = Math.max(height - padding * 2, 1);
-            transformPoint = (x: number, y: number) => ({
-                x: padding + ((x - minX) / spanX) * usableWidth,
-                y: padding + ((y - minY) / spanY) * usableHeight,
-            });
+        const sim = forceSimulation(forceNodes)
+            .force(
+                'link',
+                forceLink<ForceNodeDatum, ForceLinkDatum>(links)
+                    .id((node) => node.id)
+                    .distance((edge) => {
+                        const base = BASE_DISTANCE / Math.max(edge.strength, 0.1);
+                        const factor = edge.isInterCommunity ? 1.35 : 0.75;
+                        const dist = base * factor;
+                        if (dist < MIN_DISTANCE) {
+                            return MIN_DISTANCE;
+                        }
+                        if (dist > MAX_DISTANCE) {
+                            return MAX_DISTANCE;
+                        }
+                        return dist;
+                    })
+                    .strength((edge) =>
+                        edge.isInterCommunity
+                            ? Math.max(0.08, edge.strength * 0.8)
+                            : Math.max(0.12, edge.strength * 1.1),
+                    ),
+            )
+            .force('charge', forceManyBody().strength(-240))
+            .force('collide', forceCollide<ForceNodeDatum>().radius((node) => node.radius + 10))
+            .force('center', forceCenter(0, 0))
+            .force(
+                'communityX',
+                forceX<ForceNodeDatum>()
+                    .x((node) => centers.get(node.community ?? 0)?.x ?? 0)
+                    .strength(0.08),
+            )
+            .force(
+                'communityY',
+                forceY<ForceNodeDatum>()
+                    .y((node) => centers.get(node.community ?? 0)?.y ?? 0)
+                    .strength(0.08),
+            )
+            .stop();
+
+        const iterations = Math.max(320, forceNodes.length * 10);
+        for (let i = 0; i < iterations; i += 1) {
+            sim.tick();
         }
 
-        const positioned: LayoutNode[] = graphData.nodes.map((node) => {
-            const rawX = typeof node.layoutX === 'number' ? node.layoutX : undefined;
-            const rawY = typeof node.layoutY === 'number' ? node.layoutY : undefined;
-            const transformed = rawX !== undefined && rawY !== undefined && transformPoint
-                ? transformPoint(rawX, rawY)
-                : undefined;
-            const previous = previousPositionsRef.current.get(node.id);
-            const fallback = transformed ?? previous ?? { x: width / 2, y: height / 2 };
+        const latest = new Map<string, { x: number; y: number }>();
+        forceNodes.forEach((node) => {
+            latest.set(node.id, {
+                x: node.x ?? 0,
+                y: node.y ?? 0,
+            });
+        });
+        setPositions(latest);
+    }, [parsedData, viewport.width, viewport.height]);
+
+    useEffect(() => {
+        if (!parsedData) {
+            setRange(null);
+            return;
+        }
+        const coords = Array.from(positions.values());
+        if (coords.length === 0) {
+            const xs = parsedData.nodes.map((node) => node.x ?? 0);
+            const ys = parsedData.nodes.map((node) => node.y ?? 0);
+            const minX = Math.min(...xs, -200);
+            const maxX = Math.max(...xs, 200);
+            const minY = Math.min(...ys, -200);
+            const maxY = Math.max(...ys, 200);
+            const pad = 50;
+            setRange({
+                x: { start: minX - pad, end: maxX + pad, min: minX, max: maxX, span: (maxX + pad) - (minX - pad) },
+                y: { start: minY - pad, end: maxY + pad, min: minY, max: maxY, span: (maxY + pad) - (minY - pad) },
+            });
+            return;
+        }
+        const xs = coords.map((coord) => coord.x);
+        const ys = coords.map((coord) => coord.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const pad = 80;
+        setRange({
+            x: {
+                start: minX - pad,
+                end: maxX + pad,
+                min: minX,
+                max: maxX,
+                span: maxX - minX + pad * 2,
+            },
+            y: {
+                start: minY - pad,
+                end: maxY + pad,
+                min: minY,
+                max: maxY,
+                span: maxY - minY + pad * 2,
+            },
+        });
+    }, [parsedData, positions]);
+
+    const derivedEdges = useMemo(() => {
+        if (!parsedData) {
+            return { backbone: [], rest: [] } as { backbone: BackendEdge[]; rest: BackendEdge[] };
+        }
+        const sorted = [...parsedData.edges].sort((a, b) => b.strength - a.strength);
+        const ensureCoverage = Math.max(backboneCoverage, 0.5);
+        const limit = Math.max(Math.floor(sorted.length * ensureCoverage), Math.min(sorted.length, 30));
+        const thresholdStrength = sorted[limit - 1]?.strength ?? 0;
+
+        const backbone: BackendEdge[] = [];
+        const rest: BackendEdge[] = [];
+        parsedData.edges.forEach((edge) => {
+            if (edge.layer === 'backbone') {
+                backbone.push(edge);
+            } else if (edge.strength >= thresholdStrength) {
+                rest.push(edge);
+            }
+        });
+        return { backbone, rest };
+    }, [parsedData, backboneCoverage]);
+
+    const nodesForRender = useMemo(() => {
+        if (!parsedData) {
+            return [] as BackendNode[];
+        }
+        return parsedData.nodes.map((node) => {
+            const coord = positions.get(node.id);
             return {
                 ...node,
-                x: fallback.x,
-                y: fallback.y,
+                x: coord?.x ?? node.x ?? 0,
+                y: coord?.y ?? node.y ?? 0,
             };
         });
+    }, [parsedData, positions]);
 
-        const positionLookup = new Map<string, LayoutNode>();
-        positioned.forEach((node) => positionLookup.set(node.id, node));
-
-        const edgesWithGeometry: LayoutEdge[] = graphData.edges.map((edge) => {
-            const points: { x: number; y: number }[] = [];
-            if (transformPoint && edge.xs && edge.ys) {
-                const limit = Math.min(edge.xs.length, edge.ys.length);
-                if (limit >= 2) {
-                    const firstX = edge.xs[0];
-                    const firstY = edge.ys[0];
-                    const lastX = edge.xs[limit - 1];
-                    const lastY = edge.ys[limit - 1];
-                    if (typeof firstX === 'number' && typeof firstY === 'number') {
-                        points.push(transformPoint(firstX, firstY));
-                    }
-                    if (typeof lastX === 'number' && typeof lastY === 'number') {
-                        points.push(transformPoint(lastX, lastY));
-                    }
-                }
-            }
-
-            if (points.length < 2) {
-                const source = positionLookup.get(edge.source);
-                const target = positionLookup.get(edge.target);
-                if (source && target) {
-                    points.length = 0;
-                    points.push({ x: source.x, y: source.y });
-                    points.push({ x: target.x, y: target.y });
-                }
-            }
-
-            if (points.length < 2) {
-                return undefined;
-            }
-
-            return {
-                key: makeEdgeKey(edge.source, edge.target),
-                source: edge.source,
-                target: edge.target,
-                strength: edge.strength,
-                points,
-                baseWidth: 1 + 2.5 * edge.strength,
-                baseOpacity: Math.max(0, Math.min(0.9, 0.3 + 0.6 * edge.strength)),
-            };
-        }).filter((edge): edge is LayoutEdge => edge !== undefined);
-
-        previousPositionsRef.current = new Map(
-            positioned.map((node) => [node.id, { x: node.x, y: node.y }]),
-        );
-        setLayoutNodes(positioned);
-        setLayoutEdges(edgesWithGeometry);
-    }, [graphData, viewport, visible]);
-
-    const handleWheel = useCallback((event: WheelEvent) => {
-        if (!visible) {
-            return;
+    const buildEdgePath = useCallback((edge: BackendEdge) => {
+        if (edge.xs && edge.ys && edge.xs.length >= 2 && edge.ys.length >= 2) {
+            return buildPath(edge.xs, edge.ys);
         }
-        event.preventDefault();
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) {
-            return;
-        }
-        const offsetX = event.clientX - rect.left;
-        const offsetY = event.clientY - rect.top;
-        const baseDelta = event.deltaY;
-        const delta = event.deltaMode === DOM_DELTA_LINE
-            ? baseDelta * 20
-            : event.deltaMode === DOM_DELTA_PAGE
-                ? baseDelta * rect.height
-                : baseDelta;
-        const zoomIntensity = 0.00085;
-        const zoomFactor = Math.exp(-delta * zoomIntensity);
-        setTransform((prev) => {
-            const nextScale = Math.min(4.5, Math.max(0.45, prev.scale * zoomFactor));
-            const scaleRatio = nextScale / prev.scale;
-            const translateX = offsetX - scaleRatio * (offsetX - prev.translateX);
-            const translateY = offsetY - scaleRatio * (offsetY - prev.translateY);
-            return {
-                scale: nextScale,
-                translateX,
-                translateY,
-            };
-        });
-    }, [visible]);
-
-    useEffect(() => {
-        const element = containerRef.current;
-        if (!element) {
-            return;
-        }
-        const block = (event: Event) => {
-            if (!visible) {
-                return;
-            }
-            event.preventDefault();
-        };
-        element.addEventListener('wheel', handleWheel, { passive: false });
-        element.addEventListener('touchmove', block, { passive: false });
-        element.addEventListener('gesturestart', block as EventListener, { passive: false });
-        element.addEventListener('gesturechange', block as EventListener, { passive: false });
-        element.addEventListener('gestureend', block as EventListener, { passive: false });
-        return () => {
-            element.removeEventListener('wheel', handleWheel as EventListener);
-            element.removeEventListener('touchmove', block as EventListener);
-            element.removeEventListener('gesturestart', block as EventListener);
-            element.removeEventListener('gesturechange', block as EventListener);
-            element.removeEventListener('gestureend', block as EventListener);
-        };
-    }, [handleWheel, visible]);
-
-    const dragStateRef = useRef<{
-        pointerId: number;
-        originX: number;
-        originY: number;
-        startTranslateX: number;
-        startTranslateY: number;
-    } | null>(null);
-
-    const stopDragging = useCallback((svg: SVGSVGElement) => {
-        const drag = dragStateRef.current;
-        if (!drag) {
-            return;
-        }
-        try {
-            svg.releasePointerCapture(drag.pointerId);
-        } catch (err) {
-            // ignore
-        }
-        dragStateRef.current = null;
-    }, []);
-
-    const handlePointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-        if (!visible || event.button !== 0) {
-            return;
-        }
-        const target = event.target as Element | null;
-        if (target && target.closest('.relationship-graph-panel__node')) {
-            return;
-        }
-        const svg = event.currentTarget;
-        svg.setPointerCapture(event.pointerId);
-        dragStateRef.current = {
-            pointerId: event.pointerId,
-            originX: event.clientX,
-            originY: event.clientY,
-            startTranslateX: transform.translateX,
-            startTranslateY: transform.translateY,
-        };
-        event.preventDefault();
-    }, [transform.translateX, transform.translateY, visible]);
-
-    const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-        const drag = dragStateRef.current;
-        if (!drag) {
-            return;
-        }
-        event.preventDefault();
-        const deltaX = event.clientX - drag.originX;
-        const deltaY = event.clientY - drag.originY;
-        setTransform((prev) => ({
-            scale: prev.scale,
-            translateX: drag.startTranslateX + deltaX,
-            translateY: drag.startTranslateY + deltaY,
-        }));
-    }, []);
-
-    const handlePointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-        event.preventDefault();
-        stopDragging(event.currentTarget);
-    }, [stopDragging]);
-
-    const handlePointerLeave = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-        if (!dragStateRef.current) {
-            return;
-        }
-        event.preventDefault();
-        stopDragging(event.currentTarget);
-    }, [stopDragging]);
-
-    const triggerHighlight = useCallback((keys: string[]) => {
-        if (keys.length === 0) {
-            return;
-        }
-        const highlighted = highlightedRef.current;
-        let changed = false;
-        keys.forEach((key) => {
-            if (!highlighted.has(key)) {
-                changed = true;
-            }
-            highlighted.add(key);
-            const existing = highlightTimeoutsRef.current.get(key);
-            if (existing !== undefined) {
-                window.clearTimeout(existing);
-            }
-            const timeout = window.setTimeout(() => {
-                highlightTimeoutsRef.current.delete(key);
-                if (highlighted.delete(key)) {
-                    setLayoutEdges((prev) => [...prev]);
-                }
-            }, HIGHLIGHT_DURATION_MS);
-            highlightTimeoutsRef.current.set(key, timeout);
-        });
-        if (changed) {
-            setLayoutEdges((prev) => [...prev]);
-        }
-    }, []);
-
-    useEffect(() => {
-        const handleHighlight = (event: Event) => {
-            const custom = event as CustomEvent<HighlightEventDetail>;
-            const detail = custom.detail;
-            if (!detail) {
-                return;
-            }
-            const lookup = aliasLookupRef.current;
-            const sourceToken = normaliseToken(detail.source);
-            const targetToken = normaliseToken(detail.target);
-            if (!sourceToken || !targetToken) {
-                return;
-            }
-            const source = lookup.get(sourceToken) ?? sourceToken;
-            const target = lookup.get(targetToken) ?? targetToken;
-            const key = makeEdgeKey(source, target);
-            if (!edgeKeysRef.current.has(key)) {
-                return;
-            }
-            triggerHighlight([key]);
-        };
-        window.addEventListener('relationship:highlight', handleHighlight as EventListener);
-        return () => {
-            window.removeEventListener('relationship:highlight', handleHighlight as EventListener);
-        };
-    }, [triggerHighlight]);
-
-    const renderedEdges = useMemo(() => layoutEdges.map((edge) => {
-        const highlighted = highlightedRef.current.has(edge.key);
-        return {
-            ...edge,
-            highlighted,
-            strokeWidth: highlighted ? edge.baseWidth + 1 : edge.baseWidth,
-            strokeOpacity: highlighted ? Math.min(0.95, edge.baseOpacity + 0.12) : edge.baseOpacity,
-            strokeColor: highlighted ? '#2563EB' : '#94A3B8',
-        };
-    }), [layoutEdges]);
-
-    const handleNodeClick = useCallback((node: LayoutNode) => {
-        const detail = {
-            id: node.agentId != null ? String(node.agentId) : node.id,
-            label: node.label,
-        };
-        window.dispatchEvent(new CustomEvent('agentsociety:relationship-node', { detail }));
-        onNodeSelect?.(detail);
-    }, [onNodeSelect]);
-
-    const statusMessage = useMemo(() => {
-        if (!visible) {
+        const source = nodesForRender.find((node) => node.id === edge.source);
+        const target = nodesForRender.find((node) => node.id === edge.target);
+        if (!source || !target) {
             return null;
         }
-        if (error) {
-            return (
-                <div className="relationship-graph-panel__status relationship-graph-panel__status--error">
-                    {t('relationshipLayout.error')}
-                </div>
-            );
+        return buildPath([source.x, target.x], [source.y, target.y]);
+    }, [nodesForRender]);
+
+    const filteredEdges = useMemo(() => {
+        const applyStrengthFilter = (edge: BackendEdge) => edge.strength >= minStrength;
+        return {
+            backbone: derivedEdges.backbone.filter(applyStrengthFilter),
+            rest: showBackboneOnly
+                ? []
+                : derivedEdges.rest.filter(applyStrengthFilter),
+        };
+    }, [derivedEdges, minStrength, showBackboneOnly]);
+
+    const handleWheel = useCallback(
+        (event: React.WheelEvent<SVGSVGElement>) => {
+            event.preventDefault();
+            const scaleFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const { clientX, clientY, currentTarget } = event;
+            const rect = currentTarget.getBoundingClientRect();
+            const hasValidRect = rect.width > 0 && rect.height > 0;
+            const svgX =
+                range && hasValidRect
+                    ? range.x.start + ((clientX - rect.left) / rect.width) * range.x.span
+                    : 0;
+            const svgY =
+                range && hasValidRect
+                    ? range.y.start + ((clientY - rect.top) / rect.height) * range.y.span
+                    : 0;
+
+            setTransform((prev) => {
+                const unclamped = prev.scale * scaleFactor;
+                const nextScale = Math.min(4, Math.max(0.4, unclamped));
+
+                if (!range || !hasValidRect) {
+                    if (nextScale === prev.scale) {
+                        return prev;
+                    }
+                    return { ...prev, scale: nextScale };
+                }
+
+                if (nextScale === prev.scale) {
+                    return prev;
+                }
+
+                const worldX = svgX / prev.scale - prev.translateX;
+                const worldY = svgY / prev.scale - prev.translateY;
+                const nextTranslateX = svgX / nextScale - worldX;
+                const nextTranslateY = svgY / nextScale - worldY;
+
+                return {
+                    scale: nextScale,
+                    translateX: nextTranslateX,
+                    translateY: nextTranslateY,
+                };
+            });
+        },
+        [range],
+    );
+
+    const handleReset = useCallback(() => {
+        setTransform({ scale: 1, translateX: 0, translateY: 0 });
+        setPositions((prev) => new Map(prev));
+    }, []);
+
+    const viewBox = useMemo(() => {
+        if (!range) {
+            return '0 0 1 1';
         }
-        if (loading) {
-            return (
-                <div className="relationship-graph-panel__status">
-                    {t('relationshipLayout.loading')}
-                </div>
-            );
+        return `${range.x.start} ${range.y.start} ${range.x.span} ${range.y.span}`;
+    }, [range]);
+
+    const renderEdge = (edge: BackendEdge, highlighted: boolean) => {
+        const path = buildEdgePath(edge);
+        if (!path) {
+            return null;
         }
+        const isBackbone = edge.layer === 'backbone';
+        const width = isBackbone
+            ? 1 + 4 * edge.strength
+            : 0.5 + 2 * edge.strength;
+        const opacity = isBackbone
+            ? 0.3 + 0.6 * edge.strength
+            : 0.1 + 0.4 * edge.strength;
+        return (
+            <path
+                key={edge.key}
+                d={path}
+                stroke={highlighted ? '#2563EB' : '#94A3B8'}
+                strokeWidth={highlighted ? width + 1 : width}
+                strokeOpacity={Math.min(0.95, opacity)}
+                fill="none"
+                strokeDasharray={highlighted ? '6 4' : undefined}
+                vectorEffect="non-scaling-stroke"
+            />
+        );
+    };
+
+    const renderNode = (node: BackendNode) => (
+        <g key={node.id} transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}>
+            <circle
+                r={node.radius}
+                fill={node.color}
+                stroke="none"
+                strokeWidth={0}
+            />
+            <text
+                x={node.radius + 4}
+                y={4}
+                fontSize={12}
+                fill="#0F172A"
+                pointerEvents="none"
+            >
+                {node.label}
+            </text>
+        </g>
+    );
+
+    const handleNodeClick = useCallback((node: BackendNode) => {
+        try {
+            if (typeof window !== 'undefined') {
+                const detail: any = { id: node.id, label: node.label };
+                window.dispatchEvent(new CustomEvent('agentsociety:relationship-node', { detail }));
+            }
+        } catch {
+            // ignore dispatch failure
+        }
+        onNodeSelect?.({ id: node.id, label: node.label });
+    }, [onNodeSelect]);
+
+    const isHighlighted = useCallback((edge: BackendEdge) => highlightRef.current.has(edge.key), []);
+
+    if (!visible) {
         return null;
-    }, [error, loading, t, visible]);
+    }
 
     return (
-        <div
-            ref={containerRef}
-            className="relationship-graph-panel"
-            data-visible={visible ? 'true' : 'false'}
-            style={{
-                touchAction: visible ? 'none' : undefined,
-                overscrollBehavior: visible ? 'contain' : undefined,
-                overflow: 'hidden',
-                WebkitUserSelect: visible ? 'none' : undefined,
-                userSelect: visible ? 'none' : undefined,
-            }}
-            onPointerDownCapture={(event) => {
-                if (!visible) {
-                    return;
-                }
-                const target = event.target as Element | null;
-                if (target && target.closest('.relationship-graph-panel__node')) {
-                    return;
-                }
-                event.preventDefault();
-            }}
-        >
-            {visible && (
-                <svg
-                    className="relationship-graph-panel__svg"
-                    width={viewport.width}
-                    height={viewport.height}
-                    viewBox={`0 0 ${Math.max(viewport.width, 1)} ${Math.max(viewport.height, 1)}`}
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerCancel={handlePointerUp}
-                    onPointerLeave={handlePointerLeave}
-                >
-                    <g transform={`translate(${transform.translateX} ${transform.translateY}) scale(${transform.scale})`}>
-                        <g className="relationship-graph-panel__edges">
-                            {renderedEdges.map((edge) => (
-                                <polyline
-                                    key={edge.key}
-                                    points={edge.points.map((point) => `${point.x},${point.y}`).join(' ')}
-                                    fill="none"
-                                    stroke={edge.strokeColor}
-                                    strokeWidth={edge.strokeWidth}
-                                    strokeOpacity={edge.strokeOpacity}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    vectorEffect="non-scaling-stroke"
-                                    strokeDasharray={edge.highlighted ? '4 4' : undefined}
-                                    data-highlighted={edge.highlighted ? 'true' : 'false'}
-                                />
-                            ))}
-                        </g>
-                        <g>
-                            {layoutNodes.map((node) => {
-                                const radius = node.size / 2;
-                                return (
-                                    <g
-                                        key={node.id}
-                                        className="relationship-graph-panel__node"
-                                        transform={`translate(${node.x}, ${node.y})`}
-                                        onClick={() => handleNodeClick(node)}
-                                        style={{ cursor: 'pointer' }}
-                                    >
-                                        <circle
-                                            r={radius}
-                                            fill={node.color}
-                                            stroke="#0F172A"
-                                            strokeWidth={1.5}
-                                        />
-                                        <text
-                                            y={radius + 14}
-                                            textAnchor="middle"
-                                            dominantBaseline="hanging"
-                                        >
-                                            {node.label}
-                                        </text>
-                                    </g>
-                                );
-                            })}
-                        </g>
-                    </g>
-                </svg>
+        <div className="relationship-graph-panel" ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 12,
+                    left: 12,
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'center',
+                    zIndex: 9999,
+                    pointerEvents: 'auto',
+                }}
+            >
+                <label style={{ display: 'flex', flexDirection: 'column', color: '#0F172A', fontSize: 12 }}>
+                    {t('relationshipGraph.minStrength', 'Min strength')}
+                    <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={minStrength}
+                        onChange={(event) => setMinStrength(Number(event.target.value))}
+                        style={{ width: 120 }}
+                    />
+                    <span>{minStrength.toFixed(2)}</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', color: '#0F172A', fontSize: 12 }}>
+                    {t('relationshipGraph.backboneOnly', 'Backbone only')}
+                    <input
+                        type="checkbox"
+                        checked={showBackboneOnly}
+                        onChange={(event) => setShowBackboneOnly(event.target.checked)}
+                    />
+                </label>
+                <button type="button" onClick={handleReset} style={{ padding: '4px 8px' }}>
+                    {t('relationshipGraph.resetLayout', 'Reset view')}
+                </button>
+            </div>
+
+            {error && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#DC2626' }}>
+                    {error}
+                </div>
             )}
-            {statusMessage}
+
+            <svg
+                width="100%"
+                height="100%"
+                viewBox={viewBox}
+                preserveAspectRatio="xMidYMid meet"
+                onWheel={handleWheel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 1,
+                    background: '#F8FAFC',
+                    touchAction: 'none',
+                    cursor: draggingRef.current ? 'grabbing' : 'grab',
+                }}
+            >
+                <g transform={`translate(${transform.translateX}, ${transform.translateY}) scale(${transform.scale})`}>
+                    {filteredEdges.rest.map((edge) => renderEdge(edge, isHighlighted(edge)))}
+                    {filteredEdges.backbone.map((edge) => renderEdge(edge, isHighlighted(edge)))}
+                    {nodesForRender.map((node) => (
+                        <g
+                            key={node.id}
+                            transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
+                            onClick={() => handleNodeClick(node)}
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <circle
+                                r={node.radius}
+                                fill={node.color}
+                                stroke="none"
+                                strokeWidth={0}
+                            />
+                            <text
+                                x={node.radius + 4}
+                                y={4}
+                                fontSize={12}
+                                fill="#0F172A"
+                                pointerEvents="none"
+                            >
+                                {node.label}
+                            </text>
+                        </g>
+                    ))}
+                </g>
+            </svg>
         </div>
     );
 };

@@ -25,6 +25,7 @@ from typing import (
 )
 
 import networkx as nx
+from networkx.algorithms import community as nx_community
 from bokeh.document import Document
 from bokeh.io import curdoc
 from bokeh.models import ColumnDataSource, HoverTool, Range1d, TapTool, CustomJS
@@ -119,7 +120,7 @@ class AgentRelationshipGraphRenderer:
         flash_interval: float = 0.25,
         enable_rendering: bool = False,
         layout_algorithm: Optional[str] = None,
-        hide_weak_edges: bool = False,
+        hide_weak_edges: bool | float = False,
         **_ignored_layout_params: Any,
     ) -> None:
         self._document: Document = doc or curdoc()
@@ -131,7 +132,20 @@ class AgentRelationshipGraphRenderer:
         self._enable_rendering = enable_rendering
         self._highlight_color = highlight_color
         self._highlight_width_delta = highlight_width_delta if highlight_width_delta > 0 else 1.1
-        self._hide_weak_edges = bool(hide_weak_edges)
+
+        # [FEATURE] allow callers to supply a numeric hide-weak-edges threshold while
+        # remaining backward compatible with the historical boolean flag.
+        threshold: Optional[float]
+        if isinstance(hide_weak_edges, bool):
+            threshold = 0.05 if hide_weak_edges else None
+        else:
+            try:
+                parsed = float(hide_weak_edges)
+                threshold = max(0.0, min(parsed, 1.0))
+            except (TypeError, ValueError):
+                threshold = None
+        self._hide_weak_edges_threshold = threshold
+        self._hide_weak_edges_enabled = threshold is not None
 
         allowed_algorithms = {"spring", "kamada_kawai", "fruchterman"}
         self._layout_algorithm_choice: Optional[str] = None
@@ -174,12 +188,61 @@ class AgentRelationshipGraphRenderer:
         payload = self._load_graph_payload(graph_data)
         self._build_graph(payload)
 
-        layout = self._extract_layout(payload)
-        node_layout = self._select_layout(layout)
+        layout_payload = self._extract_layout(payload)
+        node_ids = [str(node) for node in self._graph.nodes]
+        provided_layout: Dict[str, Tuple[float, float]] = {}
+        for node_id in node_ids:
+            coords = layout_payload.get(node_id)
+            if coords is None:
+                continue
+            try:
+                provided_layout[node_id] = (float(coords[0]), float(coords[1]))
+            except (TypeError, ValueError):
+                logger.debug("Invalid coordinate payload for node %s; ignoring.", node_id)
+
+        total_nodes = len(node_ids)
+        provided_ratio = (len(provided_layout) / total_nodes) if total_nodes else 0.0
+
+        if total_nodes and provided_ratio >= 0.8 and provided_layout:
+            logger.debug(
+                "Using provided layout for %d/%d nodes (coverage %.1f%%).",
+                len(provided_layout),
+                total_nodes,
+                provided_ratio * 100.0,
+            )
+            if len(provided_layout) < total_nodes:
+                computed = self._compute_force_directed_layout(initial_positions=provided_layout)
+                for node_id, coords in provided_layout.items():
+                    computed[node_id] = coords
+                if len(computed) < total_nodes:
+                    missing_ids = [node for node in node_ids if node not in computed]
+                    computed.update(self._generate_fallback_layout(missing_ids))
+                node_layout = computed
+            else:
+                node_layout = provided_layout
+        else:
+            if provided_layout and total_nodes:
+                logger.info(
+                    "Provided layout covers %.1f%% of nodes; recomputing force-directed layout.",
+                    provided_ratio * 100.0,
+                )
+            node_layout = self._compute_force_directed_layout(
+                initial_positions=provided_layout if provided_layout else None
+            )
+            if len(node_layout) < total_nodes:
+                missing_ids = [node for node in node_ids if node not in node_layout]
+                if missing_ids:
+                    logger.warning(
+                        "Force-directed layout missing %d nodes; applying fallback placement.",
+                        len(missing_ids),
+                    )
+                    node_layout.update(self._generate_fallback_layout(missing_ids))
 
         self._layout = node_layout
         self._layout_scale = self._estimate_layout_scale(node_layout)
-        self._range_metadata = self._compute_range_metadata(node_layout)
+        # [FEATURE] prefer backend-provided range metadata when available so the
+        # frontend layout aligns with precomputed coordinates.
+        self._range_metadata = self._extract_or_compute_ranges(payload, node_layout)
 
         self.node_source = self._build_node_source(node_layout)
         self.edge_source, self._base_edge_styles = self._build_edge_source()
@@ -250,13 +313,22 @@ class AgentRelationshipGraphRenderer:
         ys_column = edge_data.get("ys", [])
         for idx, source in enumerate(edge_data.get("source", [])):
             target = edge_data["target"][idx]
+            strength_value = float(edge_data["strength"][idx])
             payload = {
                 "source": source,
                 "target": target,
-                "strength": float(edge_data["strength"][idx]),
+                "strength": strength_value,
                 "line_width": float(edge_data["line_width"][idx]),
                 "line_alpha": float(edge_data["line_alpha"][idx]),
             }
+            weight_column = edge_data.get("weight")
+            if weight_column is not None and idx < len(weight_column):
+                payload["weight"] = float(weight_column[idx])
+            else:
+                payload["weight"] = strength_value
+            backbone_column = edge_data.get("is_backbone")
+            if backbone_column is not None and idx < len(backbone_column):
+                payload["is_backbone"] = bool(backbone_column[idx])
             if idx < len(xs_column) and idx < len(ys_column):
                 payload["xs"] = [float(v) for v in xs_column[idx]]
                 payload["ys"] = [float(v) for v in ys_column[idx]]
@@ -311,17 +383,31 @@ class AgentRelationshipGraphRenderer:
         for edge in edges:
             source = str(edge["source"])
             target = str(edge["target"])
+
             strength = max(0.1, min(float(edge.get("strength", 1.0)), 1.0))
-            layout_weight = 1.0 / strength
             edge_payload = dict(edge)
             edge_payload["strength"] = strength
+
+            raw_weight = edge_payload.get("weight")
+            weight_value: float
+            try:
+                weight_value = float(raw_weight) if raw_weight is not None else strength
+            except (TypeError, ValueError):
+                weight_value = strength
+
+            # [FIX] honour backend-provided strengths directly when seeding
+            # the layout so stronger ties pull nodes closer together while
+            # weaker ties prefer longer springs (inverse weighting mirrors the
+            # backend's force-directed assumptions).
+            layout_weight = 1.0 / max(strength, 0.05)
+
             self._graph.add_edge(
                 source,
                 target,
                 strength=strength,
-                weight=layout_weight,
+                weight=weight_value,
                 layout_weight=layout_weight,
-                render_weight=strength,
+                render_weight=weight_value,
                 data=edge_payload,
             )
 
@@ -369,22 +455,57 @@ class AgentRelationshipGraphRenderer:
             coords = layout_payload.get(node_id)
             if coords is None:
                 continue
-            provided[node_id] = (float(coords[0]), float(coords[1]))
+            try:
+                provided[node_id] = (float(coords[0]), float(coords[1]))
+            except (TypeError, ValueError):
+                logger.debug("Invalid coordinate payload for node %s; ignoring.", node_id)
 
-        if len(provided) == len(node_ids) and provided:
+        missing = [node_id for node_id in node_ids if node_id not in provided]
+        if not missing and provided:
             return provided
 
-        if provided and len(provided) < len(node_ids):
+        if missing:
             logger.warning(
-                "Relationship payload missing coordinates for %d nodes; regenerating layout.",
-                len(node_ids) - len(provided),
-            )
-        elif not provided and layout_payload:
-            logger.warning(
-                "Relationship payload layout omitted recognised nodes; generating layout instead."
+                "Relationship payload missing coordinates for %d nodes; applying simple fallback placement.",
+                len(missing),
             )
 
-        return self._compute_force_directed_layout(initial_positions=provided or None)
+        layout: Dict[str, Tuple[float, float]] = dict(provided)
+        if missing:
+            layout.update(self._generate_fallback_layout(missing))
+
+        if not layout:
+            layout = self._generate_fallback_layout(node_ids)
+
+        return layout
+
+    def _generate_fallback_layout(self, node_ids: Sequence[str]) -> Dict[str, Tuple[float, float]]:
+        """Generate a simple deterministic layout when no coordinates are supplied."""
+
+        count = len(node_ids)
+        if count == 0:
+            return {}
+
+        sorted_ids = [str(node) for node in node_ids]
+        sorted_ids.sort()
+
+        grid_size = max(1, int(math.ceil(math.sqrt(count))))
+        spacing = 60.0
+        half = (grid_size - 1) / 2.0
+        rng = random.Random(42)
+
+        fallback: Dict[str, Tuple[float, float]] = {}
+        for index, node_id in enumerate(sorted_ids):
+            row = index // grid_size
+            col = index % grid_size
+            x = (col - half) * spacing
+            y = (row - half) * spacing
+            jitter = spacing * 0.08
+            x += rng.uniform(-jitter, jitter)
+            y += rng.uniform(-jitter, jitter)
+            fallback[node_id] = (float(x), float(y))
+
+        return fallback
 
     def _extract_nodes(
         self,
@@ -422,6 +543,36 @@ class AgentRelationshipGraphRenderer:
         return self._extract_edges_from_nodes(payload)
 
 
+    def _extract_or_compute_ranges(
+        self,
+        payload: Mapping[str, Any],
+        layout: Mapping[str, Tuple[float, float]],
+    ) -> Dict[str, Dict[str, float]]:
+        """Use backend-provided range metadata when available."""
+
+        def _normalise_range(mapping: Any) -> Optional[Dict[str, float]]:
+            if not isinstance(mapping, Mapping):
+                return None
+            result: Dict[str, float] = {}
+            for key in ("start", "end", "min", "max", "span"):
+                value = mapping.get(key)
+                if value is None:
+                    continue
+                try:
+                    result[key] = float(value)
+                except (TypeError, ValueError):
+                    continue
+            return result or None
+
+        x_range = _normalise_range(payload.get("x_range"))
+        y_range = _normalise_range(payload.get("y_range"))
+
+        if x_range and y_range:
+            return {"x": x_range, "y": y_range}
+
+        return self._compute_range_metadata(layout)
+
+
     def _compute_force_directed_layout(
         self,
         *,
@@ -442,13 +593,55 @@ class AgentRelationshipGraphRenderer:
                 except (TypeError, ValueError):
                     continue
 
-        # [FIX] inverse strength weighting keeps weak ties long while detaching very weak ties
-        for _, _, data in self._graph.edges(data=True):
+        try:
+            community_sets = list(
+                nx_community.greedy_modularity_communities(
+                    self._graph,
+                    weight="strength",
+                )
+            )
+        except Exception as exc:  # pragma: no cover - fallback safety
+            logger.debug("Community detection failed; falling back to single cluster: %s", exc)
+            community_sets = []
+
+        if not community_sets:
+            community_sets = [set(self._graph.nodes)]
+
+        community_lookup: Dict[str, int] = {}
+        for index, members in enumerate(community_sets):
+            for node in members:
+                community_lookup[str(node)] = index
+
+        for u, v, data in self._graph.edges(data=True):
             strength = max(0.1, min(float(data.get("strength", 1.0)), 1.0))
-            if strength < 0.3:
-                data["weight"] = 0.1
-            else:
-                data["weight"] = 1.0 / (strength + 0.05)
+            community_u = community_lookup.get(str(u), 0)
+            community_v = community_lookup.get(str(v), 0)
+            layout_weight = 1.0 / max(strength, 0.05)
+            data["weight"] = layout_weight
+            data["layout_weight"] = layout_weight
+            data["inter_community"] = community_u != community_v
+            data["layout_included"] = True
+
+        global_initial: Dict[str, Tuple[float, float]] = {}
+        try:
+            raw_initial = nx.spring_layout(
+                self._graph,
+                weight="layout_weight",
+                seed=42,
+                k=max(4.0, 9.0 / math.sqrt(float(node_count))),
+                iterations=max(2000, 8 * node_count),
+                scale=max(20.0, math.sqrt(float(node_count)) * 6.0),
+            )
+            for node, coords in raw_initial.items():
+                global_initial[str(node)] = (float(coords[0]), float(coords[1]))
+        except Exception as exc:  # pragma: no cover - safeguard layout generation
+            logger.warning(
+                "Failed to compute initial spring layout for relationship graph: %s",
+                exc,
+            )
+
+        for node_id, coords in global_initial.items():
+            initial_dict.setdefault(node_id, coords)
 
         components = [sorted(component, key=str) for component in nx.connected_components(self._graph)]
         components.sort(key=lambda comp: (len(comp), [str(node) for node in comp]))
@@ -596,6 +789,10 @@ class AgentRelationshipGraphRenderer:
                     "span_x": span_x if span_x > 0 else fallback_span,
                     "span_y": span_y if span_y > 0 else fallback_span,
                     "isolated": is_isolated,
+                    "initial_center": (
+                        float(centroid_x),
+                        float(centroid_y),
+                    ),
                 }
             )
 
@@ -618,23 +815,23 @@ class AgentRelationshipGraphRenderer:
 
             initial_positions_meta: Dict[int, Tuple[float, float]] = {}
             max_radius = max(info["radius"] for info in component_infos)
-            circle_radius = max_radius * max(component_count, 1) * 1.6
-            for index in range(component_count):
-                angle = (2.0 * math.pi * index) / component_count
+            jitter_scale = max_radius * 0.15 + 20.0
+            for index, info in enumerate(component_infos):
+                base_cx, base_cy = info.get("initial_center", (0.0, 0.0))
                 initial_positions_meta[index] = (
-                    circle_radius * math.cos(angle),
-                    circle_radius * math.sin(angle),
+                    float(base_cx + rng.uniform(-jitter_scale, jitter_scale)),
+                    float(base_cy + rng.uniform(-jitter_scale, jitter_scale)),
                 )
 
-            k_meta = max(6.0, max_radius * 1.8)
+            k_meta = max(10.0, max_radius * 2.2)
             pos_meta = nx.spring_layout(
                 meta_graph,
                 weight="weight",
                 pos=initial_positions_meta,
-                iterations=1000,
+                iterations=1200,
                 seed=42,
                 k=k_meta,
-                scale=circle_radius * 2.5,
+                scale=max_radius * max(component_count * 3.0, 8.0),
             )
 
             for index in range(component_count):
@@ -926,6 +1123,7 @@ class AgentRelationshipGraphRenderer:
         weights: List[float] = []
         sources: List[str] = []
         targets: List[str] = []
+        backbone_flags: List[bool] = []
 
         self._edge_lookup.clear()
 
@@ -934,6 +1132,8 @@ class AgentRelationshipGraphRenderer:
             float(self._range_metadata.get("y", {}).get("span", 0.0)),
             1.0,
         )
+
+        threshold = self._hide_weak_edges_threshold if self._hide_weak_edges_enabled else None
 
         for u, v, data in self._graph.edges(data=True):
             source_id = str(u)
@@ -955,7 +1155,7 @@ class AgentRelationshipGraphRenderer:
 
             strength = max(0.1, min(float(data.get("strength", 1.0)), 1.0))
 
-            if strength < 0.2 and self._hide_weak_edges:
+            if threshold is not None and strength < threshold:
                 logger.debug(
                     "Skipping weak relationship edge %s-%s due to hide_weak_edges flag.",
                     source_id,
@@ -968,11 +1168,16 @@ class AgentRelationshipGraphRenderer:
             seed = int.from_bytes(hashlib.sha256(seed_bytes).digest()[:8], "big", signed=False)
             edge_rng = random.Random(seed)
 
+            raw = data.get("data") if isinstance(data, Mapping) else None
+            is_backbone = False
+            if isinstance(raw, Mapping):
+                is_backbone = bool(raw.get("is_backbone"))
+
             if strength >= 0.75:
                 xs.append([sx, tx])
                 ys.append([sy, ty])
             elif strength >= 0.2:
-                jitter_amount = max(edge_length * 0.03, global_span * 0.008)
+                jitter_amount = max(edge_length * 0.02, global_span * 0.006)
                 mid_x = (sx + tx) / 2.0
                 mid_y = (sy + ty) / 2.0
                 jitter_x = (edge_rng.random() * 2.0 - 1.0) * jitter_amount
@@ -980,7 +1185,7 @@ class AgentRelationshipGraphRenderer:
                 xs.append([sx, mid_x + jitter_x, tx])
                 ys.append([sy, mid_y + jitter_y, ty])
             else:
-                jitter_amount = max(edge_length * 0.05, global_span * 0.015)
+                jitter_amount = max(edge_length * 0.035, global_span * 0.01)
                 direction_x = tx - sx
                 direction_y = ty - sy
                 cp1_x = sx + direction_x / 3.0 + (edge_rng.random() * 2.0 - 1.0) * jitter_amount
@@ -991,9 +1196,16 @@ class AgentRelationshipGraphRenderer:
                 ys.append([sy, cp1_y, cp2_y, ty])
 
             strengths.append(strength)
-            weights.append(float(data.get("render_weight", strength)))
+            raw_weight_value = None
+            if isinstance(raw, Mapping):
+                raw_weight_value = raw.get("weight")
+            if raw_weight_value is None:
+                raw_weight_value = data.get("render_weight", strength)
+            try:
+                weights.append(float(raw_weight_value))
+            except (TypeError, ValueError):
+                weights.append(float(strength))
 
-            raw = data.get("data") if isinstance(data, Mapping) else None
             base_width = 1.0 + 2.5 * strength
             base_alpha = max(0.0, min(0.95, 0.3 + 0.6 * strength))
             if isinstance(raw, Mapping):
@@ -1008,21 +1220,25 @@ class AgentRelationshipGraphRenderer:
                 except (TypeError, ValueError):
                     pass
 
-            if strength >= 0.75:
+            if is_backbone:
+                base_width = max(base_width, 2.5)
+                base_alpha = min(0.95, max(base_alpha, 0.65))
+            elif strength >= 0.75:
                 base_width = max(base_width, 3.0)
                 base_alpha = min(0.95, max(base_alpha, 0.7))
             elif strength >= 0.2:
-                base_width = min(max(base_width, 1.0), 2.5)
-                base_alpha = min(0.6, max(base_alpha, 0.3))
+                base_width = min(max(base_width, 1.2), 2.6)
+                base_alpha = min(0.65, max(base_alpha, 0.35))
             else:
                 base_width = min(0.8, max(base_width, 0.2))
-                base_alpha = min(0.1, max(base_alpha, 0.02))
+                base_alpha = min(0.2, max(base_alpha, 0.05))
 
             widths.append(max(0.2, base_width))
             alphas.append(max(0.0, min(0.95, base_alpha)))
             colors.append("#64748B")
             sources.append(source_id)
             targets.append(target_id)
+            backbone_flags.append(is_backbone)
             self._edge_lookup[_EdgeKey(u, v).as_tuple()] = len(xs) - 1
 
         source = ColumnDataSource(
@@ -1036,6 +1252,7 @@ class AgentRelationshipGraphRenderer:
                 "weight": weights,
                 "source": sources,
                 "target": targets,
+                "is_backbone": backbone_flags,
             }
         )
 
