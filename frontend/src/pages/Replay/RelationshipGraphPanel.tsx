@@ -268,6 +268,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     onNodeSelect,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const svgRef = useRef<SVGSVGElement | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [payload, setPayload] = useState<RelationshipEdgesResponse | null>(null);
@@ -294,6 +295,9 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     // 拖拽事件
     const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
         if (e.button !== 0) {
+            return;
+        }
+        if (e.target !== e.currentTarget) {
             return;
         }
         e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -354,22 +358,6 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     }, []);
 
     useEffect(() => {
-        const element = containerRef.current;
-        if (!element) {
-            return;
-        }
-        const handler = (event: WheelEvent) => {
-            if ((event.target as Element | null)?.closest('svg')) {
-                event.preventDefault();
-            }
-        };
-        element.addEventListener('wheel', handler, { passive: false, capture: true });
-        return () => {
-            element.removeEventListener('wheel', handler, { capture: true });
-        };
-    }, []);
-
-    useEffect(() => {
         highlightRef.current.clear();
         highlightTimerRef.current.forEach((handle) => window.clearTimeout(handle));
         highlightTimerRef.current.clear();
@@ -378,11 +366,11 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         setMinStrength(0.05);
         setBackboneCoverage(0.6);
         setPositions(new Map());
-        // 同步外部 agents
-        setAgentsForEdges(
-            Array.isArray(agents) ? (agents as AgentWithMaybeConnections[]) : [],
-        );
-    }, [experimentId, agents]);
+    }, [experimentId]);
+
+    useEffect(() => {
+        setAgentsForEdges(Array.isArray(agents) ? (agents as AgentWithMaybeConnections[]) : []);
+    }, [agents]);
 
     // 如果当前 agents 没有 connections，自动兜底拉取一份（仅在需要时发起）
     useEffect(() => {
@@ -1017,6 +1005,36 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         [range],
     );
 
+    useEffect(() => {
+        const element = svgRef.current;
+        if (!element) {
+            return;
+        }
+        const handler = (event: WheelEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const current = svgRef.current;
+            if (!current) {
+                return;
+            }
+            const syntheticEvent = {
+                deltaMode: event.deltaMode,
+                deltaY: event.deltaY,
+                ctrlKey: event.ctrlKey,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                currentTarget: current,
+                preventDefault: () => event.preventDefault(),
+                stopPropagation: () => event.stopPropagation(),
+            } as unknown as React.WheelEvent<SVGSVGElement>;
+            handleWheel(syntheticEvent);
+        };
+        element.addEventListener('wheel', handler, { passive: false, capture: true });
+        return () => {
+            element.removeEventListener('wheel', handler, { capture: true });
+        };
+    }, [handleWheel, visible]);
+
     const handleReset = useCallback(() => {
         setTransform({ scale: 1, translateX: 0, translateY: 0 });
         setPositions((prev) => new Map(prev));
@@ -1077,20 +1095,16 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
     const handleNodeClick = useCallback((node: BackendNode, event?: React.MouseEvent<SVGGElement>) => {
         event?.stopPropagation();
+        const detail = { id: node.id, label: node.label };
         try {
             if (typeof window !== 'undefined') {
-                const detail = { id: node.id, label: node.label };
-                window.dispatchEvent(
-                    new CustomEvent('agentsociety:relationship-node', { detail, bubbles: false }),
-                );
-                window.dispatchEvent(
-                    new CustomEvent('replay:relationship-node', { detail, bubbles: false }),
-                );
+                window.dispatchEvent(new CustomEvent('agentsociety:relationship-node', { detail }));
+                window.dispatchEvent(new CustomEvent('replay:relationship-node', { detail }));
             }
         } catch {
             // ignore dispatch failure
         }
-        onNodeSelect?.({ id: node.id, label: node.label });
+        onNodeSelect?.(detail);
     }, [onNodeSelect]);
 
     const isHighlighted = useCallback((edge: BackendEdge) => highlightRef.current.has(edge.key), []);
@@ -1107,8 +1121,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 position: 'relative',
                 width: '100%',
                 height: '100%',
-                overscrollBehavior: 'none',
-                touchAction: 'none',
+                overscrollBehavior: 'contain',
             }}
             onWheelCapture={(event) => {
                 const target = event.target as Element | null;
@@ -1171,15 +1184,11 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
             )}
 
             <svg
+                ref={svgRef}
                 width="100%"
                 height="100%"
                 viewBox={viewBox}
                 preserveAspectRatio="xMidYMid meet"
-                onWheel={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    handleWheel(event);
-                }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
