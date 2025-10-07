@@ -120,7 +120,7 @@ interface RangeMetadata {
 }
 
 const DEFAULT_NODE_RADIUS = 18;
-const MIN_STRENGTH = 0.1;
+const MIN_STRENGTH = 0.05;
 const MAX_DISTANCE = 500;
 const MIN_DISTANCE = 30;
 
@@ -297,7 +297,9 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         if (e.button !== 0) {
             return;
         }
-        if (e.target !== e.currentTarget) {
+        const path = (e.nativeEvent as any).composedPath?.() as Element[] | undefined;
+        // 若 composedPath 命中工具条，则不启动画布拖拽
+        if (path?.some((node) => (node as Element).closest?.('[data-role="relationship-toolbar"]'))) {
             return;
         }
         e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -310,7 +312,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
             return;
         }
         const dx = e.clientX - lastPointRef.current.x;
-        const dy = e.clientY - lastPointRef.current.y;
+               const dy = e.clientY - lastPointRef.current.y;
         lastPointRef.current = { x: e.clientX, y: e.clientY };
         setTransform((prev) => ({
             ...prev,
@@ -929,14 +931,28 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     }, [nodesForRender]);
 
     const filteredEdges = useMemo(() => {
-        const applyStrengthFilter = (edge: BackendEdge) => edge.strength >= minStrength;
-        return {
-            backbone: derivedEdges.backbone.filter(applyStrengthFilter),
-            rest: showBackboneOnly
-                ? []
-                : derivedEdges.rest.filter(applyStrengthFilter),
-        };
+        const pass = (edge: BackendEdge) => edge.strength >= minStrength;
+        return showBackboneOnly
+            ? {
+                  backbone: derivedEdges.backbone.filter(pass),
+                  rest: [],
+              }
+            : {
+                  backbone: derivedEdges.backbone.filter(pass),
+                  rest: derivedEdges.rest.filter(pass),
+              };
     }, [derivedEdges, minStrength, showBackboneOnly]);
+
+    useEffect(() => {
+        console.log('[UI] minStrength', minStrength, 'backboneOnly', showBackboneOnly);
+    }, [minStrength, showBackboneOnly]);
+
+    useEffect(() => {
+        console.log('[UI] edges', {
+            total: parsedData?.edges.length ?? 0,
+            shown: filteredEdges.backbone.length + filteredEdges.rest.length,
+        });
+    }, [parsedData, filteredEdges]);
 
     const handleWheel = useCallback(
         (event: React.WheelEvent<SVGSVGElement>) => {
@@ -1011,6 +1027,10 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
             return;
         }
         const handler = (event: WheelEvent) => {
+            const path = (event.composedPath && event.composedPath()) || [];
+            if (!path.includes(element)) {
+                return;
+            }
             event.preventDefault();
             event.stopPropagation();
             const current = svgRef.current;
@@ -1069,6 +1089,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 fill="none"
                 strokeDasharray={highlighted ? '6 4' : undefined}
                 vectorEffect="non-scaling-stroke"
+                pointerEvents="none"
             />
         );
     };
@@ -1122,13 +1143,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 width: '100%',
                 height: '100%',
                 overscrollBehavior: 'contain',
-            }}
-            onWheelCapture={(event) => {
-                const target = event.target as Element | null;
-                if (target?.closest('[data-role="relationship-toolbar"]')) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                }
+                userSelect: draggingRef.current ? 'none' : 'auto',
             }}
         >
             <div
@@ -1137,34 +1152,73 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     position: 'absolute',
                     top: 12,
                     left: 12,
-                    display: 'flex',
+                    display: 'inline-flex',
                     gap: 12,
                     alignItems: 'center',
-                    zIndex: 10000,
+                    flexWrap: 'wrap',
+                    zIndex: 100000,
+                    isolation: 'isolate',
+                    background: 'rgba(255,255,255,0.9)',
+                    backdropFilter: 'blur(2px)',
+                    padding: 8,
+                    borderRadius: 12,
+                    boxShadow: '0 6px 20px rgba(0,0,0,.10)',
                     pointerEvents: 'auto',
+                    width: 'max-content',
                 }}
-                onPointerDownCapture={(event) => event.stopPropagation()}
-                onPointerMoveCapture={(event) => event.stopPropagation()}
-                onPointerUpCapture={(event) => event.stopPropagation()}
+                // 唯一保留的 capture：阻止在工具条区域滚轮触发画布缩放
+                onWheelCapture={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }}
+                onPointerDownCapture={(event) => {
+                    event.stopPropagation();
+                }}
+                onPointerMoveCapture={(event) => {
+                    event.stopPropagation();
+                }}
+                onPointerUpCapture={(event) => {
+                    event.stopPropagation();
+                }}
+                onClickCapture={(event) => {
+                    event.stopPropagation();
+                }}
                 onWheelCapture={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                 }}
             >
-                <label style={{ display: 'flex', flexDirection: 'column', color: '#0F172A', fontSize: 12 }}>
+                <label
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        color: '#0F172A',
+                        fontSize: 12,
+                        pointerEvents: 'auto',
+                    }}
+                >
                     {t('relationshipGraph.minStrength', 'Min strength')}
                     <input
                         type="range"
-                        min={0}
+                        min={0.05}
                         max={1}
                         step={0.05}
                         value={minStrength}
                         onChange={(event) => setMinStrength(Number(event.target.value))}
-                        style={{ width: 120 }}
+                        style={{ width: 140 }}
                     />
                     <span>{minStrength.toFixed(2)}</span>
                 </label>
-                <label style={{ display: 'flex', flexDirection: 'column', color: '#0F172A', fontSize: 12 }}>
+
+                <label
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        color: '#0F172A',
+                        fontSize: 12,
+                        pointerEvents: 'auto',
+                    }}
+                >
                     {t('relationshipGraph.backboneOnly', 'Backbone only')}
                     <input
                         type="checkbox"
@@ -1172,9 +1226,19 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                         onChange={(event) => setShowBackboneOnly(event.target.checked)}
                     />
                 </label>
-                <button type="button" onClick={handleReset} style={{ padding: '4px 8px' }}>
+
+                <button
+                    type="button"
+                    onClick={handleReset}
+                    style={{ padding: '4px 10px', pointerEvents: 'auto' }}
+                >
                     {t('relationshipGraph.resetLayout', 'Reset view')}
                 </button>
+
+                <span style={{ fontSize: 12, color: '#334155', pointerEvents: 'auto' }}>
+                    edges: total {parsedData?.edges.length ?? 0}, shown{' '}
+                    {filteredEdges.backbone.length + filteredEdges.rest.length}
+                </span>
             </div>
 
             {error && (
@@ -1204,7 +1268,20 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     cursor: draggingRef.current ? 'grabbing' : 'grab',
                 }}
             >
-                <g transform={`translate(${transform.translateX}, ${transform.translateY}) scale(${transform.scale})`}>
+                {range && (
+                    <rect
+                        x={range.x.start}
+                        y={range.y.start}
+                        width={range.x.span}
+                        height={range.y.span}
+                        fill="transparent"
+                        pointerEvents="all"
+                    />
+                )}
+                <g
+                    transform={`translate(${transform.translateX}, ${transform.translateY}) scale(${transform.scale})`}
+                    style={{ cursor: draggingRef.current ? 'grabbing' : 'grab' }}
+                >
                     {filteredEdges.rest.map((edge) => renderEdge(edge, isHighlighted(edge)))}
                     {filteredEdges.backbone.map((edge) => renderEdge(edge, isHighlighted(edge)))}
                     {nodesForRender.map((node) => (
