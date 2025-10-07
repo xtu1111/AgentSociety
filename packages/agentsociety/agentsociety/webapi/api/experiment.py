@@ -1101,7 +1101,12 @@ async def _build_relationship_graph_payload(
         if weight_numeric <= 0:
             weight_numeric = strength_numeric
         edge["weight"] = weight_numeric
-        graph.add_edge(source_id, target_id, weight=weight_numeric)
+        graph.add_edge(
+            source_id,
+            target_id,
+            weight=weight_numeric,
+            strength=strength_numeric,
+        )
 
     # [FALLBACK] when no explicit relationships detected -> DO NOT fabricate edges
     if not edges_payload:
@@ -1216,6 +1221,78 @@ async def _build_relationship_graph_payload(
                 iterations=max(3600, int(node_count * 18)),
                 scale=layout_scale,
             )
+
+        if graph.number_of_edges() > 0:
+            strength_samples = [
+                max(0.1, float(data.get("strength", data.get("weight", 1.0))))
+                for _, _, data in graph.edges(data=True)
+            ]
+            if strength_samples:
+                min_strength = min(strength_samples)
+                max_strength = max(strength_samples)
+                span_strength = max(max_strength - min_strength, 1e-6)
+                min_length_target = layout_scale * 0.08
+                max_length_target = layout_scale * 0.55
+
+                desired_lengths: Dict[Tuple[str, str], float] = {}
+                for u, v, data in graph.edges(data=True):
+                    strength_value = max(
+                        0.1, float(data.get("strength", data.get("weight", 1.0)))
+                    )
+                    norm = (strength_value - min_strength) / span_strength
+                    norm = min(max(norm, 0.0), 1.0)
+                    desired = min_length_target + (1.0 - norm) * (
+                        max_length_target - min_length_target
+                    )
+                    desired_lengths[(u, v)] = desired
+
+                working_positions: Dict[str, List[float]] = {
+                    node_id: [
+                        float(positions.get(node_id, (0.0, 0.0))[0]),
+                        float(positions.get(node_id, (0.0, 0.0))[1]),
+                    ]
+                    for node_id in node_ids
+                }
+
+                for _ in range(280):
+                    max_delta = 0.0
+                    for u, v, data in graph.edges(data=True):
+                        desired = desired_lengths.get((u, v)) or desired_lengths.get((v, u))
+                        if desired is None:
+                            continue
+                        pos_u = working_positions.get(u)
+                        pos_v = working_positions.get(v)
+                        if pos_u is None or pos_v is None:
+                            continue
+                        dx = pos_v[0] - pos_u[0]
+                        dy = pos_v[1] - pos_u[1]
+                        dist = math.hypot(dx, dy)
+                        if dist == 0.0:
+                            jitter_x = rng.uniform(-0.5, 0.5)
+                            jitter_y = rng.uniform(-0.5, 0.5)
+                            pos_u[0] += jitter_x
+                            pos_u[1] += jitter_y
+                            pos_v[0] -= jitter_x
+                            pos_v[1] -= jitter_y
+                            continue
+                        delta = dist - desired
+                        max_delta = max(max_delta, abs(delta))
+                        if abs(delta) < 1e-6:
+                            continue
+                        adjustment = (delta / dist) * 0.22
+                        shift_x = dx * adjustment * 0.5
+                        shift_y = dy * adjustment * 0.5
+                        pos_u[0] += shift_x
+                        pos_u[1] += shift_y
+                        pos_v[0] -= shift_x
+                        pos_v[1] -= shift_y
+                    if max_delta < 1.2:
+                        break
+
+                positions = {
+                    node_id: (coords[0], coords[1])
+                    for node_id, coords in working_positions.items()
+                }
 
         xs = [positions.get(node_id, (0.0, 0.0))[0] for node_id in node_ids]
         ys = [positions.get(node_id, (0.0, 0.0))[1] for node_id in node_ids]

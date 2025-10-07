@@ -11,8 +11,6 @@ import {
     forceManyBody,
     forceCenter,
     forceCollide,
-    forceX,
-    forceY,
     type SimulationNodeDatum,
     type SimulationLinkDatum,
 } from 'd3-force';
@@ -123,7 +121,6 @@ interface RangeMetadata {
 
 const DEFAULT_NODE_RADIUS = 18;
 const MIN_STRENGTH = 0.1;
-const BASE_DISTANCE = 200;
 const MAX_DISTANCE = 500;
 const MIN_DISTANCE = 30;
 
@@ -296,6 +293,9 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
     // 拖拽事件
     const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        if (e.button !== 0) {
+            return;
+        }
         e.currentTarget.setPointerCapture?.(e.pointerId);
         draggingRef.current = true;
         lastPointRef.current = { x: e.clientX, y: e.clientY };
@@ -321,6 +321,19 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         lastPointRef.current = null;
     }, []);
 
+    const onPointerCancel = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        draggingRef.current = false;
+        lastPointRef.current = null;
+    }, []);
+
+    const onPointerLeave = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+        if (!draggingRef.current) {
+            return;
+        }
+        onPointerUp(e);
+    }, [onPointerUp]);
+
     useEffect(() => {
         const element = containerRef.current;
         if (!element) {
@@ -337,6 +350,22 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         return () => {
             observer.disconnect();
             window.removeEventListener('resize', handleResize);
+        };
+    }, []);
+
+    useEffect(() => {
+        const element = containerRef.current;
+        if (!element) {
+            return;
+        }
+        const handler = (event: WheelEvent) => {
+            if ((event.target as Element | null)?.closest('svg')) {
+                event.preventDefault();
+            }
+        };
+        element.addEventListener('wheel', handler, { passive: false, capture: true });
+        return () => {
+            element.removeEventListener('wheel', handler, { capture: true });
         };
     }, []);
 
@@ -750,16 +779,6 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
             return;
         }
 
-        const communities = Array.from(new Set(parsedData.nodes.map((node) => node.community ?? 0))).sort(
-            (a, b) => a - b,
-        );
-        const R = 350;
-        const centers = new Map<number, { x: number; y: number }>();
-        communities.forEach((community, index) => {
-            const angle = (index / Math.max(1, communities.length)) * Math.PI * 2;
-            centers.set(community, { x: Math.cos(angle) * R, y: Math.sin(angle) * R });
-        });
-
         const links: ForceLinkDatum[] = parsedData.edges.map((edge) => ({
             source: edge.source,
             target: edge.target,
@@ -769,47 +788,25 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 !== (nodesMap.get(edge.target)?.community ?? 0),
         }));
 
+        const distanceStrict = (strength: number) => {
+            const clamped = Math.min(1, Math.max(0.05, strength));
+            return MIN_DISTANCE + Math.pow(1 - clamped, 1.4) * (MAX_DISTANCE - MIN_DISTANCE);
+        };
+
         const sim = forceSimulation(forceNodes)
             .force(
                 'link',
                 forceLink<ForceNodeDatum, ForceLinkDatum>(links)
                     .id((node) => node.id)
-                    .distance((edge) => {
-                        const base = BASE_DISTANCE / Math.max(edge.strength, 0.1);
-                        const factor = edge.isInterCommunity ? 1.35 : 0.75;
-                        const dist = base * factor;
-                        if (dist < MIN_DISTANCE) {
-                            return MIN_DISTANCE;
-                        }
-                        if (dist > MAX_DISTANCE) {
-                            return MAX_DISTANCE;
-                        }
-                        return dist;
-                    })
-                    .strength((edge) =>
-                        edge.isInterCommunity
-                            ? Math.max(0.08, edge.strength * 0.8)
-                            : Math.max(0.12, edge.strength * 1.1),
-                    ),
+                    .distance((edge) => distanceStrict(edge.strength))
+                    .strength(() => 0.9),
             )
-            .force('charge', forceManyBody().strength(-240))
-            .force('collide', forceCollide<ForceNodeDatum>().radius((node) => node.radius + 10))
+            .force('charge', forceManyBody().strength(-80))
+            .force('collide', forceCollide<ForceNodeDatum>().radius((node) => node.radius + 6))
             .force('center', forceCenter(0, 0))
-            .force(
-                'communityX',
-                forceX<ForceNodeDatum>()
-                    .x((node) => centers.get(node.community ?? 0)?.x ?? 0)
-                    .strength(0.08),
-            )
-            .force(
-                'communityY',
-                forceY<ForceNodeDatum>()
-                    .y((node) => centers.get(node.community ?? 0)?.y ?? 0)
-                    .strength(0.08),
-            )
             .stop();
 
-        const iterations = Math.max(320, forceNodes.length * 10);
+        const iterations = Math.max(900, forceNodes.length * 30);
         for (let i = 0; i < iterations; i += 1) {
             sim.tick();
         }
@@ -827,6 +824,33 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     useEffect(() => {
         if (!parsedData) {
             setRange(null);
+            return;
+        }
+        if (payload?.x_range && payload?.y_range) {
+            const safeNum = (value: unknown, fallback: number) =>
+                typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+            const xr = payload.x_range;
+            const yr = payload.y_range;
+            const xStart = safeNum(xr.start, 0);
+            const xEnd = safeNum(xr.end, 1200);
+            const yStart = safeNum(yr.start, 0);
+            const yEnd = safeNum(yr.end, 1200);
+            setRange({
+                x: {
+                    start: xStart,
+                    end: xEnd,
+                    min: safeNum(xr.min, xStart),
+                    max: safeNum(xr.max, xEnd),
+                    span: safeNum(xr.span, Math.max(xEnd - xStart, 1)),
+                },
+                y: {
+                    start: yStart,
+                    end: yEnd,
+                    min: safeNum(yr.min, yStart),
+                    max: safeNum(yr.max, yEnd),
+                    span: safeNum(yr.span, Math.max(yEnd - yStart, 1)),
+                },
+            });
             return;
         }
         const coords = Array.from(positions.values());
@@ -867,7 +891,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 span: maxY - minY + pad * 2,
             },
         });
-    }, [parsedData, positions]);
+    }, [parsedData, positions, payload]);
 
     const derivedEdges = useMemo(() => {
         if (!parsedData) {
@@ -928,8 +952,29 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
     const handleWheel = useCallback(
         (event: React.WheelEvent<SVGSVGElement>) => {
+            const deltaMode = event.deltaMode;
+            let deltaY = event.deltaY;
+            const DOM_DELTA_LINE = 1;
+            const DOM_DELTA_PAGE = 2;
+            if (deltaMode === DOM_DELTA_LINE) {
+                deltaY *= 40;
+            } else if (deltaMode === DOM_DELTA_PAGE) {
+                deltaY *= 800;
+            }
+
+            if (deltaY === 0) {
+                return;
+            }
+
             event.preventDefault();
-            const scaleFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+            event.stopPropagation();
+
+            const SCROLL_PIXELS_PER_STEP = 120;
+            const SCALE_STEP = 1.1;
+            const exponent = -deltaY / SCROLL_PIXELS_PER_STEP;
+            const baseFactor = Math.exp(Math.log(SCALE_STEP) * exponent);
+            const pinchBoost = event.ctrlKey ? 1.06 : 1.0;
+            const scaleFactor = baseFactor * pinchBoost;
             const { clientX, clientY, currentTarget } = event;
             const rect = currentTarget.getBoundingClientRect();
             const hasValidRect = rect.width > 0 && rect.height > 0;
@@ -1030,11 +1075,17 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
         </g>
     );
 
-    const handleNodeClick = useCallback((node: BackendNode) => {
+    const handleNodeClick = useCallback((node: BackendNode, event?: React.MouseEvent<SVGGElement>) => {
+        event?.stopPropagation();
         try {
             if (typeof window !== 'undefined') {
-                const detail: any = { id: node.id, label: node.label };
-                window.dispatchEvent(new CustomEvent('agentsociety:relationship-node', { detail }));
+                const detail = { id: node.id, label: node.label };
+                window.dispatchEvent(
+                    new CustomEvent('agentsociety:relationship-node', { detail, bubbles: false }),
+                );
+                window.dispatchEvent(
+                    new CustomEvent('replay:relationship-node', { detail, bubbles: false }),
+                );
             }
         } catch {
             // ignore dispatch failure
@@ -1049,8 +1100,26 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
     }
 
     return (
-        <div className="relationship-graph-panel" ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div
+            className="relationship-graph-panel"
+            ref={containerRef}
+            style={{
+                position: 'relative',
+                width: '100%',
+                height: '100%',
+                overscrollBehavior: 'none',
+                touchAction: 'none',
+            }}
+            onWheelCapture={(event) => {
+                const target = event.target as Element | null;
+                if (target?.closest('[data-role="relationship-toolbar"]')) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+            }}
+        >
             <div
+                data-role="relationship-toolbar"
                 style={{
                     position: 'absolute',
                     top: 12,
@@ -1058,8 +1127,15 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     display: 'flex',
                     gap: 12,
                     alignItems: 'center',
-                    zIndex: 9999,
+                    zIndex: 10000,
                     pointerEvents: 'auto',
+                }}
+                onPointerDownCapture={(event) => event.stopPropagation()}
+                onPointerMoveCapture={(event) => event.stopPropagation()}
+                onPointerUpCapture={(event) => event.stopPropagation()}
+                onWheelCapture={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                 }}
             >
                 <label style={{ display: 'flex', flexDirection: 'column', color: '#0F172A', fontSize: 12 }}>
@@ -1099,16 +1175,23 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 height="100%"
                 viewBox={viewBox}
                 preserveAspectRatio="xMidYMid meet"
-                onWheel={handleWheel}
+                onWheel={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleWheel(event);
+                }}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
+                onPointerLeave={onPointerLeave}
+                onPointerCancel={onPointerCancel}
                 style={{
                     position: 'absolute',
                     inset: 0,
                     zIndex: 1,
                     background: '#F8FAFC',
                     touchAction: 'none',
+                    pointerEvents: 'auto',
                     cursor: draggingRef.current ? 'grabbing' : 'grab',
                 }}
             >
@@ -1119,7 +1202,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                         <g
                             key={node.id}
                             transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
-                            onClick={() => handleNodeClick(node)}
+                            onClick={(event) => handleNodeClick(node, event)}
                             style={{ cursor: 'pointer' }}
                         >
                             <circle
