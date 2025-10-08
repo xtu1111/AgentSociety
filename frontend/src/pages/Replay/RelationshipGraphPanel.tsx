@@ -294,14 +294,18 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
     // 拖拽事件
     const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-        if (e.button !== 0) {
-            return;
-        }
-        const path = (e.nativeEvent as any).composedPath?.() as Element[] | undefined;
-        // 若 composedPath 命中工具条，则不启动画布拖拽
-        if (path?.some((node) => (node as Element).closest?.('[data-role="relationship-toolbar"]'))) {
-            return;
-        }
+        if (e.button !== 0) return;
+
+        const native = e.nativeEvent as any;
+        const path: Element[] | undefined = native?.composedPath?.();
+        const targetEl = (e.target as Element) || null;
+
+        const hitToolbar =
+            targetEl?.closest?.('[data-role="relationship-toolbar"]') ||
+            (Array.isArray(path) && path.some((n) => (n as Element)?.closest?.('[data-role="relationship-toolbar"]')));
+
+        if (hitToolbar) return;
+
         e.currentTarget.setPointerCapture?.(e.pointerId);
         draggingRef.current = true;
         lastPointRef.current = { x: e.clientX, y: e.clientY };
@@ -1166,23 +1170,6 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     pointerEvents: 'auto',
                     width: 'max-content',
                 }}
-                // 唯一保留的 capture：阻止在工具条区域滚轮触发画布缩放
-                onWheelCapture={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                }}
-                onPointerDownCapture={(event) => {
-                    event.stopPropagation();
-                }}
-                onPointerMoveCapture={(event) => {
-                    event.stopPropagation();
-                }}
-                onPointerUpCapture={(event) => {
-                    event.stopPropagation();
-                }}
-                onClickCapture={(event) => {
-                    event.stopPropagation();
-                }}
                 onWheelCapture={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1236,8 +1223,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                 </button>
 
                 <span style={{ fontSize: 12, color: '#334155', pointerEvents: 'auto' }}>
-                    edges: total {parsedData?.edges.length ?? 0}, shown{' '}
-                    {filteredEdges.backbone.length + filteredEdges.rest.length}
+                    edges: total {parsedData?.edges.length ?? 0}, shown {filteredEdges.backbone.length + filteredEdges.rest.length}
                 </span>
             </div>
 
