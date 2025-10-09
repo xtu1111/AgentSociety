@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from ..configs import EnvConfig
 from .api import api_router
 from .models._base import Base
+from .background.post_run_interviews import create_post_run_worker
 
 __all__ = ["create_app", "empty_get_tenant_id"]
 
@@ -121,7 +122,14 @@ def create_app(
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        yield
+
+        post_run_worker = create_post_run_worker(app)
+        app.state.post_run_worker = post_run_worker
+
+        try:
+            yield
+        finally:
+            await post_run_worker.stop()
 
     # create FastAPI app
     app = FastAPI(

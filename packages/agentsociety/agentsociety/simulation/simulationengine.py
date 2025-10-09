@@ -1689,7 +1689,9 @@ class SimulationEngine:
             # fetch pending dialogs from USER
             # ======================
             if self.enable_database:
-                pending_dialogs = await self._database_writer.fetch_pending_dialogs()  # type: ignore
+                pending_dialogs = await self._database_writer.fetch_pending_dialogs(  # type: ignore
+                    post_run=False
+                )
                 get_logger().info(
                     f"({day}-{t}) Finished fetching pending dialogs. {len(pending_dialogs)} dialogs fetched."
                 )

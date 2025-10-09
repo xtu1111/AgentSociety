@@ -1,12 +1,15 @@
 from datetime import datetime, timezone
+import asyncio
 import json
 import uuid
-from typing import List, Optional, cast
+from typing import List, Literal, Optional, Set, cast
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from ..models import ApiResponseWrapper
 from ..models.agent import (
@@ -32,6 +35,86 @@ from .timezone import ensure_timezone_aware
 __all__ = ["router"]
 
 router = APIRouter(tags=["agent"])
+
+
+_pending_dialog_schema_lock = asyncio.Lock()
+_checked_pending_dialog_tables: Set[str] = set()
+
+
+async def _ensure_pending_dialog_schema(db: AsyncSession, table_name: str) -> None:
+    if table_name in _checked_pending_dialog_tables:
+        return
+
+    async with _pending_dialog_schema_lock:
+        if table_name in _checked_pending_dialog_tables:
+            return
+
+        def _load_columns(sync_session: Session, tablename: str) -> tuple[str, Set[str]]:
+            bind = sync_session.get_bind()
+            if bind is None:
+                raise RuntimeError("AsyncSession is not bound to an engine for schema inspection")
+
+            inspector = inspect(bind)
+            column_info = inspector.get_columns(tablename)
+            return bind.dialect.name, {col["name"] for col in column_info}
+
+        dialect_name, columns = await db.run_sync(_load_columns, table_name)
+
+        statements = []
+
+        if "submission_mode" not in columns:
+            if dialect_name == "sqlite":
+                statements.append(
+                    text(
+                        f"ALTER TABLE \"{table_name}\" ADD COLUMN submission_mode TEXT DEFAULT 'online'"
+                    )
+                )
+            else:
+                statements.append(
+                    text(
+                        f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS submission_mode TEXT DEFAULT 'online'"
+                    )
+                )
+
+        if "batch_id" not in columns:
+            if dialect_name == "sqlite":
+                statements.append(
+                    text(f"ALTER TABLE \"{table_name}\" ADD COLUMN batch_id TEXT")
+                )
+            else:
+                statements.append(
+                    text(
+                        f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS batch_id TEXT"
+                    )
+                )
+
+        if "post_run" not in columns:
+            if dialect_name == "sqlite":
+                statements.append(
+                    text(
+                        f"ALTER TABLE \"{table_name}\" ADD COLUMN post_run INTEGER DEFAULT 0"
+                    )
+                )
+            else:
+                statements.append(
+                    text(
+                        f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS post_run BOOLEAN DEFAULT false"
+                    )
+                )
+
+        if not statements:
+            _checked_pending_dialog_tables.add(table_name)
+            return
+
+        try:
+            for statement in statements:
+                await db.execute(statement)
+            await db.commit()
+        except SQLAlchemyError:
+            await db.rollback()
+            raise
+
+        _checked_pending_dialog_tables.add(table_name)
 
 
 @router.get("/experiments/{exp_id}/agents/{agent_id}/dialog")
@@ -63,6 +146,7 @@ async def get_agent_dialog_by_exp_id_and_agent_id(
 
         # Get pending dialogs
         table_name = experiment.pending_dialog_tablename
+        await _ensure_pending_dialog_schema(db, table_name)
         pending_table, pending_columns = pending_dialog(table_name)
         pending_stmt = (
             select(pending_table)
@@ -303,6 +387,8 @@ class AgentChatMessage(BaseModel):
     content: str
     day: int
     t: float
+    batch_id: Optional[str] = None
+    mode: Optional[Literal["online", "post_run", "broadcast"]] = None
 
 
 @router.post("/experiments/{exp_id}/agents/{agent_id}/dialog")
@@ -331,13 +417,29 @@ async def post_agent_dialog(
                 detail="Experiment not found or you don't have permission to access it",
             )
 
-        if ExperimentStatus(experiment.status) != ExperimentStatus.RUNNING:
+        exp_status = ExperimentStatus(experiment.status)
+        if exp_status not in (
+            ExperimentStatus.RUNNING,
+            ExperimentStatus.FINISHED,
+        ):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Experiment not running"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Experiment is not accepting interviews",
             )
+
+        post_run = exp_status == ExperimentStatus.FINISHED
+        if message.mode is not None:
+            submission_mode = message.mode
+        elif message.batch_id is not None:
+            submission_mode = "broadcast"
+        elif post_run:
+            submission_mode = "post_run"
+        else:
+            submission_mode = "online"
 
         # Store the dialog request in pending_dialog table
         table_name = experiment.pending_dialog_tablename
+        await _ensure_pending_dialog_schema(db, table_name)
         table, _ = pending_dialog(table_name)
         stmt = table.insert().values(
             agent_id=agent_id,
@@ -346,6 +448,9 @@ async def post_agent_dialog(
             content=message.content,
             created_at=datetime.now(timezone.utc),
             processed=False,
+            submission_mode=submission_mode,
+            batch_id=message.batch_id,
+            post_run=post_run,
         )
         await db.execute(stmt)
         await db.commit()

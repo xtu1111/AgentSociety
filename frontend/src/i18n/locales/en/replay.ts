@@ -28,6 +28,24 @@ export default {
             avgSentiment: "Average Sentiment",
             adoptionRate: "Adoption Rate"
         },
+        composer: {
+            liveMode: "Live interview. Responses will arrive in real time.",
+            postRunMode: "Post-run interview. Responses are generated asynchronously.",
+            readOnly: "Interviewing is disabled for this experiment.",
+            timeline: "Timeline: {{time}}",
+            sentimentLabel: "Sentiment {{value}}",
+            deltaLabel: "Δ{{delta}} since {{time}}",
+            insertTemplate: "Insert change-tracking template",
+            broadcastLabel: "Broadcast targets",
+            broadcastPlaceholder: "Select additional agents to interview",
+            placeholder: "Type your question for the selected agents…",
+            hint: "Press Enter to send, Shift+Enter for a new line.",
+            sendResult: "Sent question to {{success}} agent(s) ({{failure}} failed)",
+            sendFailure: "Failed to send to {{name}} (status {{status}})",
+            needTarget: "Select at least one agent to interview.",
+            template: "I noticed around {{changeTime}} your sentiment shifted from {{from}} to {{to}}. Could you share what happened by {{currentTime}}?",
+            noTimeline: "No timeline selected"
+        },
         relationshipGraph: {
             title: "Relationship graph",
             refresh: "Reload graph",

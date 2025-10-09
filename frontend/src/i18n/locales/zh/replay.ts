@@ -28,6 +28,24 @@ export default {
             avgSentiment: "平均情绪",
             adoptionRate: "采纳率"
         },
+        composer: {
+            liveMode: "实时访谈，代理会立即给出回复。",
+            postRunMode: "离线访谈，代理会在实验结束后异步生成回复。",
+            readOnly: "当前实验不支持访谈。",
+            timeline: "时间点：{{time}}",
+            sentimentLabel: "情绪值 {{value}}",
+            deltaLabel: "较 {{time}} 变化 {{delta}}",
+            insertTemplate: "插入情绪变化提问模版",
+            broadcastLabel: "群发目标",
+            broadcastPlaceholder: "选择想要追问的其他代理",
+            placeholder: "在此输入想向代理询问的问题…",
+            hint: "按 Enter 发送，Shift+Enter 换行。",
+            sendResult: "已向 {{success}} 位代理发送提问（{{failure}} 位失败）",
+            sendFailure: "向 {{name}} 发送失败（状态 {{status}}）",
+            needTarget: "请至少选择一名代理再发送。",
+            template: "我注意到你在 {{changeTime}} 的情绪从 {{from}} 变为 {{to}}。能否分享一下到 {{currentTime}} 这段时间发生了什么？",
+            noTimeline: "未选定时间轴"
+        },
         relationshipGraph: {
             title: "关系图",
             refresh: "刷新关系图",

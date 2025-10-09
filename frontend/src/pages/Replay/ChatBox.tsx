@@ -1,9 +1,9 @@
-import { Button, Flex, GetProp, message, Modal, Row, Select, Tabs } from 'antd';
+import { Button, Flex, GetProp, Input, message, Modal, Row, Select, Tabs } from 'antd';
 import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, SmileOutlined, UpOutlined, UserOutlined, LineChartOutlined } from '@ant-design/icons';
 import { AgentDialog, ApiMetric } from './components/type';
-import { Bubble, Sender } from '@ant-design/x';
+import { Bubble } from '@ant-design/x';
 import { parseT } from '../../components/util';
-import React, { useContext, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { StoreContext } from './store';
 import { Model, Survey as SurveyUI } from 'survey-react-ui';
@@ -11,6 +11,81 @@ import { fetchCustom } from '../../components/fetch';
 import { useTranslation } from 'react-i18next';
 import Plot from 'react-plotly.js';
 import { type PlotData, type PlotType } from 'plotly.js';
+
+type SentimentSnapshot = { value: number; day: number; t: number };
+
+const extractSentiment = (status: unknown): number | undefined => {
+    if (status === null || status === undefined) {
+        return undefined;
+    }
+    if (typeof status === 'number') {
+        return Number.isFinite(status) ? status : undefined;
+    }
+    if (typeof status === 'string') {
+        const num = Number(status);
+        if (!Number.isNaN(num)) {
+            return num;
+        }
+        try {
+            return extractSentiment(JSON.parse(status));
+        } catch (err) {
+            console.error('failed to parse status sentiment', err);
+            return undefined;
+        }
+    }
+    if (typeof status === 'object') {
+        const record = status as Record<string, unknown>;
+        if ('sentiment' in record) {
+            return extractSentiment(record.sentiment);
+        }
+        if ('status' in record) {
+            return extractSentiment(record.status);
+        }
+    }
+    return undefined;
+};
+
+const normalizeExperimentStatus = (
+    status: unknown
+): 'running' | 'finished' | undefined => {
+    if (status === null || status === undefined) {
+        return undefined;
+    }
+    if (typeof status === 'number') {
+        if (status === 1) {
+            return 'running';
+        }
+        if (status === 2) {
+            return 'finished';
+        }
+        return undefined;
+    }
+    if (typeof status === 'string') {
+        const trimmed = status.trim();
+        if (trimmed.length === 0) {
+            return undefined;
+        }
+        const numeric = Number(trimmed);
+        if (!Number.isNaN(numeric)) {
+            return normalizeExperimentStatus(numeric);
+        }
+        const upper = trimmed.toUpperCase();
+        if (upper === 'RUNNING' || upper === 'IN_PROGRESS') {
+            return 'running';
+        }
+        if (upper === 'FINISHED' || upper === 'COMPLETED') {
+            return 'finished';
+        }
+        return undefined;
+    }
+    if (typeof status === 'object') {
+        const record = status as Record<string, unknown>;
+        if ('status' in record) {
+            return normalizeExperimentStatus(record.status);
+        }
+    }
+    return undefined;
+};
 
 const roles: GetProp<typeof Bubble.List, 'roles'> = {
     self: {
@@ -44,6 +119,9 @@ export const RightPanel = observer(() => {
     const [content, setContent] = useState<string>('');
     const [openPreview, setOpenPreview] = useState(false);
     const [previewSurvey, setPreviousSurvey] = useState<string>();
+    const [selectedTargets, setSelectedTargets] = useState<number[]>([]);
+    const [hasTouchedTargets, setHasTouchedTargets] = useState(false);
+    const [isSending, setIsSending] = useState(false);
 
     // 生成Select选项
     const selectOptions = Array.from(store.id2surveys.values()).map(item => ({
@@ -77,6 +155,184 @@ export const RightPanel = observer(() => {
             message.success(t('replay.chatbox.survey.surveySent'));
         }
         setSelectedSurveyID(undefined);
+    };
+
+    const normalizedStatus = normalizeExperimentStatus(store.experiment?.status);
+    const isRunning = normalizedStatus === 'running';
+    const isFinished = normalizedStatus === 'finished';
+    const allowInterview = isRunning || isFinished;
+    const currentTime = store.currentTime;
+
+    const clickedStatuses = store.clickedAgentStatuses;
+    const sentimentSnapshots = useMemo<SentimentSnapshot[]>(() => {
+        return clickedStatuses
+            .map((status) => {
+                const value = extractSentiment(status.status);
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    return { value, day: status.day, t: status.t } as SentimentSnapshot;
+                }
+                return undefined;
+            })
+            .filter((snapshot): snapshot is SentimentSnapshot => snapshot !== undefined);
+    }, [clickedStatuses]);
+
+    const latestSnapshot = sentimentSnapshots.length > 0 ? sentimentSnapshots[sentimentSnapshots.length - 1] : undefined;
+    const previousSnapshot = latestSnapshot
+        ? [...sentimentSnapshots]
+              .slice(0, -1)
+              .reverse()
+              .find((snapshot) => Math.abs(snapshot.value - latestSnapshot.value) > 1e-4)
+        : undefined;
+    const sentimentDelta = latestSnapshot && previousSnapshot ? latestSnapshot.value - previousSnapshot.value : undefined;
+
+    const timelineLabel = currentTime
+        ? `${t('replay.day', { day: currentTime.day })} ${parseT(currentTime.t)}`
+        : t('replay.chatbox.composer.noTimeline');
+
+    const deltaLabel = sentimentDelta !== undefined
+        ? `${sentimentDelta >= 0 ? '+' : ''}${sentimentDelta.toFixed(2)}`
+        : undefined;
+
+    const previousChangeLabel = previousSnapshot
+        ? `${t('replay.day', { day: previousSnapshot.day })} ${parseT(previousSnapshot.t)}`
+        : timelineLabel;
+
+    const agentChoices = useMemo(() => {
+        return Array.from(store.agents.values()).map((agentRecord) => {
+            const sentiment = extractSentiment(agentRecord.status);
+            return {
+                value: agentRecord.id,
+                label: `${agentRecord.name ?? 'Agent'} (#${agentRecord.id})`,
+                sentiment,
+            };
+        });
+    }, [store.agents]);
+
+    const suggestedTargets = useMemo(() => {
+        return agentChoices
+            .filter((choice) => typeof choice.sentiment === 'number' && choice.sentiment < 0)
+            .map((choice) => choice.value);
+    }, [agentChoices]);
+
+    useEffect(() => {
+        if (!hasTouchedTargets && selectedTargets.length === 0 && suggestedTargets.length > 0) {
+            setSelectedTargets(suggestedTargets.slice(0, Math.min(suggestedTargets.length, 10)));
+        }
+    }, [hasTouchedTargets, selectedTargets.length, suggestedTargets]);
+
+    useEffect(() => {
+        setHasTouchedTargets(false);
+    }, [agent?.id]);
+
+    const composerModeText = allowInterview
+        ? isRunning
+            ? t('replay.chatbox.composer.liveMode')
+            : t('replay.chatbox.composer.postRunMode')
+        : t('replay.chatbox.composer.readOnly');
+
+    const resolvedTargets = useMemo<number[]>(() => {
+        if (selectedTargets.length > 0) {
+            return Array.from(new Set(selectedTargets));
+        }
+        return agent ? [agent.id] : [];
+    }, [agent?.id, selectedTargets]);
+
+    const sendDisabled =
+        !allowInterview ||
+        isSending ||
+        content.trim().length === 0 ||
+        resolvedTargets.length === 0;
+
+    const handleSend = async () => {
+        if (!allowInterview || isSending) {
+            return;
+        }
+        const trimmed = content.trim();
+        if (trimmed.length === 0) {
+            return;
+        }
+        const targets = resolvedTargets;
+        if (targets.length === 0) {
+            message.warning(t('replay.chatbox.composer.needTarget'));
+            return;
+        }
+        setIsSending(true);
+        try {
+            const batchId =
+                targets.length > 1
+                    ? `broadcast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+                    : undefined;
+            const payload = {
+                content,
+                day: store.currentTime?.day ?? 0,
+                t: store.currentTime?.t ?? 0,
+                batch_id: batchId,
+                mode: targets.length > 1 ? 'broadcast' : undefined,
+            };
+            const responses = await Promise.all(
+                targets.map(async (targetId) => {
+                    try {
+                        const res = await fetchCustom(
+                            `/api/experiments/${store.expID}/agents/${targetId}/dialog`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload),
+                            }
+                        );
+                        return { targetId, ok: res.ok, status: res.status };
+                    } catch (err) {
+                        console.error('Failed to send message:', err);
+                        return { targetId, ok: false, status: 500 };
+                    }
+                })
+            );
+            const successes = responses.filter((r) => r.ok).length;
+            const failures = responses.filter((r) => !r.ok);
+            if (successes > 0) {
+                message.success(
+                    t('replay.chatbox.composer.sendResult', {
+                        success: successes,
+                        failure: failures.length,
+                    })
+                );
+                setContent('');
+            }
+            failures.forEach((failure) => {
+                const targetAgent = store.agents.get(failure.targetId);
+                message.error(
+                    t('replay.chatbox.composer.sendFailure', {
+                        name: targetAgent?.name ?? failure.targetId,
+                        status: failure.status,
+                    })
+                );
+            });
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            if (!sendDisabled) {
+                void handleSend();
+            }
+        }
+    };
+
+    const handleInsertTemplate = () => {
+        if (!latestSnapshot) {
+            return;
+        }
+        const fromValue = previousSnapshot?.value ?? latestSnapshot.value;
+        const template = t('replay.chatbox.composer.template', {
+            changeTime: previousChangeLabel,
+            currentTime: timelineLabel,
+            from: fromValue.toFixed(2),
+            to: latestSnapshot.value.toFixed(2),
+        });
+        setContent((prev) => (prev ? `${prev.trim()}\n${template}` : template));
     };
 
     const getRoleByChatMessage = (m: AgentDialog) => {
@@ -226,28 +482,114 @@ export const RightPanel = observer(() => {
                     className={type === 2 ? 'bubble-input' : 'bubble-no-input'}
                     items={items}
                 />
-                {type === 2 && <>
-                    <Sender
-                        value={content}
-                        onChange={setContent}
-                        disabled={store.experiment?.status !== 1 || agent === undefined}
-                        onSubmit={async (content: string) => {
-                            if (agent === undefined) {
-                                return;
-                            }
-                            const res = await fetchCustom(`/api/experiments/${store.expID}/agents/${agent.id}/dialog`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ content: content, day: store.currentTime?.day ?? 0, t: store.currentTime?.t ?? 0 }),
-                            });
-                            if (res.status !== 200) {
-                                console.error('Failed to send message:', res);
-                            } else {
-                                message.success(t('replay.chatbox.dialog.sendSuccess'));
-                            }
-                            setContent('');
-                        }}
-                    /></>}
+                {type === 2 && (
+                    <>
+                        <div
+                            style={{
+                                marginTop: 12,
+                                marginBottom: 12,
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 12,
+                                padding: 12,
+                                background: '#f8fafc',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12,
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 12,
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{composerModeText}</span>
+                                    <span style={{ fontSize: 12, color: '#475569' }}>
+                                        {t('replay.chatbox.composer.timeline', { time: timelineLabel })}
+                                    </span>
+                                    {latestSnapshot && (
+                                        <span style={{ fontSize: 12, color: '#475569' }}>
+                                            {t('replay.chatbox.composer.sentimentLabel', {
+                                                value: latestSnapshot.value.toFixed(2),
+                                            })}
+                                            {deltaLabel !== undefined && (
+                                                <>
+                                                    {' '}
+                                                    {t('replay.chatbox.composer.deltaLabel', {
+                                                        delta: deltaLabel,
+                                                        time: previousChangeLabel,
+                                                    })}
+                                                </>
+                                            )}
+                                        </span>
+                                    )}
+                                </div>
+                                <Button size="small" onClick={handleInsertTemplate} disabled={!latestSnapshot}>
+                                    {t('replay.chatbox.composer.insertTemplate')}
+                                </Button>
+                            </div>
+                            <div>
+                                <span style={{ display: 'block', fontSize: 12, marginBottom: 4, color: '#475569' }}>
+                                    {t('replay.chatbox.composer.broadcastLabel')}
+                                </span>
+                                <Select
+                                    mode="multiple"
+                                    allowClear
+                                    value={selectedTargets}
+                                    style={{ width: '100%' }}
+                                    placeholder={t('replay.chatbox.composer.broadcastPlaceholder')}
+                                    options={agentChoices.map(({ value, label }) => ({ value, label }))}
+                                    optionFilterProp="label"
+                                    onChange={(values) => {
+                                        setHasTouchedTargets(true);
+                                        setSelectedTargets(Array.isArray(values) ? (values as number[]) : []);
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 8,
+                            }}
+                        >
+                            <Input.TextArea
+                                value={content}
+                                onChange={(event) => setContent(event.target.value)}
+                                autoSize={{ minRows: 2, maxRows: 6 }}
+                                placeholder={t('replay.chatbox.composer.placeholder')}
+                                disabled={isSending}
+                                onKeyDown={handleComposerKeyDown}
+                            />
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                }}
+                            >
+                                <span style={{ fontSize: 12, color: '#64748b' }}>
+                                    {t('replay.chatbox.composer.hint')}
+                                </span>
+                                <Button
+                                    type="primary"
+                                    icon={<ArrowUpOutlined />}
+                                    loading={isSending}
+                                    disabled={sendDisabled}
+                                    onClick={() => {
+                                        void handleSend();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </>
+                )}
             </>
         );
     };

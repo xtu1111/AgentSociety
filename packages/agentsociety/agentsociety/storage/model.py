@@ -129,7 +129,21 @@ def pending_dialog(table_name: str):
         Column("content", String),
         Column("created_at", TIMESTAMP(timezone=True)),
         Column("processed", Boolean, default=False),
-    ), ["id", "agent_id", "day", "t", "content", "created_at", "processed"]
+        Column("submission_mode", String, default="online"),
+        Column("batch_id", String, nullable=True),
+        Column("post_run", Boolean, default=False),
+    ), [
+        "id",
+        "agent_id",
+        "day",
+        "t",
+        "content",
+        "created_at",
+        "processed",
+        "submission_mode",
+        "batch_id",
+        "post_run",
+    ]
 
 
 def pending_survey(table_name: str):

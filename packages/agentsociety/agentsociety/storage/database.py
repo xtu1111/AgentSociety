@@ -136,6 +136,8 @@ class DatabaseWriter:
         self.exp_id = exp_id
         self._config = config
         self._lock = asyncio.Lock()
+        self._pending_dialog_schema_lock = asyncio.Lock()
+        self._pending_dialog_schema_checked = False
         self._sqlite_path = Path(home_dir) / "sqlite.db"
         self._engine = _create_async_engine_from_config(config, sqlite_path=self._sqlite_path)
         self._async_session = async_sessionmaker(self._engine, expire_on_commit=False)
@@ -197,16 +199,17 @@ class DatabaseWriter:
     # ==================== READ METHODS ====================
 
     async def read_dialogs(
-        self, 
-        day: Optional[int] = None, 
-        speaker: Optional[str] = None, 
+        self,
+        day: Optional[int] = None,
+        speaker: Optional[str] = None,
         dialog_type: Optional[int] = None,
         start_t: Optional[float] = None,
         end_t: Optional[float] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         order_by: str = "created_at",
-        order_direction: str = "asc"
+        order_direction: str = "asc",
+        agent_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Read dialog records with filtering and pagination.
@@ -221,6 +224,7 @@ class DatabaseWriter:
             - `offset` (Optional[int]): Offset for pagination.
             - `order_by` (str): Column to order by.
             - `order_direction` (str): Order direction ('asc' or 'desc').
+            - `agent_id` (Optional[int]): Filter by agent ID.
 
         - **Returns**:
             - `List[Dict[str, Any]]`: List of dialog records.
@@ -236,6 +240,8 @@ class DatabaseWriter:
                 conditions = []
                 if day is not None:
                     conditions.append(table_obj.c.day == day)
+                if agent_id is not None:
+                    conditions.append(table_obj.c.id == agent_id)
                 if speaker is not None:
                     conditions.append(table_obj.c.speaker == speaker)
                 if dialog_type is not None:
@@ -995,18 +1001,29 @@ class DatabaseWriter:
                 get_logger().error(f"Error updating experiment info in {self._config.db_type}: {e}")
                 raise
 
-    async def fetch_pending_dialogs(self):
+    async def fetch_pending_dialogs(
+        self,
+        *,
+        post_run: Optional[bool] = None,
+        limit: Optional[int] = None,
+    ):
         """
         Fetch all unprocessed pending dialogs from the database.
 
         - **Returns**:
             - `list[StoragePendingDialog]`: List of pending dialogs.
         """
+        await self._ensure_pending_dialog_columns()
+
         table_obj = self._tables["pending_dialog"]["table"]
         
         async with self._async_session() as session:
             try:
                 stmt = select(table_obj).where(table_obj.c.processed.is_(False))
+                if post_run is not None:
+                    stmt = stmt.where(table_obj.c.post_run.is_(post_run))
+                if limit is not None:
+                    stmt = stmt.limit(limit)
                 result = await session.execute(stmt)
                 rows = result.fetchall()
                 
@@ -1027,6 +1044,8 @@ class DatabaseWriter:
         if not pending_ids:
             return
 
+        await self._ensure_pending_dialog_columns()
+
         table_obj = self._tables["pending_dialog"]["table"]
         
         async with self._async_session() as session:
@@ -1046,6 +1065,83 @@ class DatabaseWriter:
                 await session.rollback()
                 get_logger().error(f"Error marking dialogs as processed in {self._config.db_type}: {e}")
                 raise
+
+    async def _ensure_pending_dialog_columns(self):
+        if self._pending_dialog_schema_checked:
+            return
+
+        async with self._pending_dialog_schema_lock:
+            if self._pending_dialog_schema_checked:
+                return
+
+            table_obj = self._tables["pending_dialog"]["table"]
+            table_name = table_obj.name
+
+            async with self._engine.begin() as conn:
+                dialect = conn.dialect.name
+
+                if dialect == "sqlite":
+                    pragma_stmt = text(f'PRAGMA table_info("{table_name}")')
+                    result = await conn.execute(pragma_stmt)
+                    columns = {row[1] for row in result}
+                else:
+                    column_stmt = text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = :table_name AND table_schema = current_schema()"
+                    )
+                    result = await conn.execute(column_stmt, {"table_name": table_name})
+                    columns = {row[0] for row in result}
+
+                alter_statements: list[str] = []
+                update_statements: list[tuple[str, str]] = []
+
+                if "submission_mode" not in columns:
+                    if dialect == "sqlite":
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN submission_mode TEXT DEFAULT 'online'"
+                        )
+                    else:
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS submission_mode TEXT DEFAULT 'online'"
+                        )
+                    update_statements.append(("submission_mode", "'online'"))
+
+                if "batch_id" not in columns:
+                    if dialect == "sqlite":
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN batch_id TEXT"
+                        )
+                    else:
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS batch_id TEXT"
+                        )
+                    update_statements.append(("batch_id", "NULL"))
+
+                if "post_run" not in columns:
+                    if dialect == "sqlite":
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN post_run INTEGER DEFAULT 0"
+                        )
+                    else:
+                        alter_statements.append(
+                            f"ALTER TABLE \"{table_name}\" ADD COLUMN IF NOT EXISTS post_run BOOLEAN DEFAULT false"
+                        )
+                    update_statements.append(("post_run", "0" if dialect == "sqlite" else "false"))
+
+                for statement in alter_statements:
+                    await conn.execute(text(statement))
+
+                for column, default_value in update_statements:
+                    if default_value == "NULL":
+                        continue
+                    await conn.execute(
+                        text(
+                            f"UPDATE \"{table_name}\" SET {column} = {default_value} "
+                            f"WHERE {column} IS NULL"
+                        )
+                    )
+
+            self._pending_dialog_schema_checked = True
 
     async def fetch_pending_surveys(self):
         """

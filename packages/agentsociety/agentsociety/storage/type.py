@@ -104,6 +104,12 @@ class StoragePendingDialog(BaseModel):
     """Created time"""
     processed: bool
     """Whether the dialog has been processed"""
+    submission_mode: str = "online"
+    """Submission mode for the dialog (online, post_run, broadcast, etc.)"""
+    batch_id: Optional[str] = None
+    """Batch identifier when the dialog is part of a broadcast"""
+    post_run: bool = False
+    """Whether the dialog should be handled after the experiment has finished"""
 
 
 class StoragePendingSurvey(BaseModel):

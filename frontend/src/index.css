@@ -175,13 +175,12 @@ body {
     position: absolute;
     top: calc(68px + 20px);
     right: 0px;
+    bottom: 16px;
     z-index: 1;
-
-    /* 用于避免动画效果移出屏幕后新增滚动条 */
-    overflow: hidden;
-    /* 添加这一行 */
     width: 21vw;
-    /* 添加这一行，与子元素宽度相同 */
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
 }
 
 .relationship-edges-overlay {
@@ -292,11 +291,10 @@ body {
     border-radius: 8px 0 0 8px;
     margin: 8px 0;
     width: 21vw;
-    height: calc(100vh - 68px - 60px);
-
-    justify-content: flex-start;
-    align-items: flex-start;
-
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     backdrop-filter: blur(40px);
 
     /* 增加向右侧收起的动画效果 */
@@ -333,16 +331,44 @@ body {
 .right-inner .tabs {
     max-width: 100%;
     padding: 0 0 0 8px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.right-inner .tabs .ant-tabs-nav {
+    padding-right: 8px;
+}
+
+.right-inner .tabs .ant-tabs-content-holder {
+    flex: 1;
+    min-height: 0;
+}
+
+.right-inner .tabs .ant-tabs-content {
+    height: 100%;
+}
+
+.right-inner .tabs .ant-tabs-tabpane {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .bubble-no-input {
     padding: 0 8px 8px 0;
-    height: calc(100vh - 68px - 124px);
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
 }
 
 .bubble-input {
     padding: 0 8px 8px 0;
-    height: calc(100vh - 68px - 90px - 112px);
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
 }
 
 .global-prompt {
