@@ -39,7 +39,7 @@ export default {
             broadcastLabel: "群发目标",
             broadcastPlaceholder: "选择想要追问的其他代理",
             placeholder: "在此输入想向代理询问的问题…",
-            hint: "按 Enter 发送，Shift+Enter 换行。",
+            hint: "按 Ctrl+Enter（macOS 上为 ⌘+Enter）发送，Enter 换行。",
             sendResult: "已向 {{success}} 位代理发送提问（{{failure}} 位失败）",
             sendFailure: "向 {{name}} 发送失败（状态 {{status}}）",
             needTarget: "请至少选择一名代理再发送。",

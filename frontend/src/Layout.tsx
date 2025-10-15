@@ -28,20 +28,37 @@ export default function RootLayout({
 
     // get the height of the header to set the content height
     useEffect(() => {
-        if (contentRef.current === null) {
+        if (!contentRef.current) {
             return
         }
-        if (headerRef.current) {
-            const headerHeight = headerRef.current.clientHeight;
-            if (contentRef.current) {
-                contentRef.current.style.minHeight = `calc(100vh - ${headerHeight}px)`;
+
+        const updateContentHeight = () => {
+            if (!contentRef.current) {
                 return
             }
+
+            const headerHeight = headerRef.current?.clientHeight
+            if (typeof headerHeight === 'number' && headerHeight > 0) {
+                contentRef.current.style.height = `calc(100vh - ${headerHeight}px)`
+            } else {
+                contentRef.current.style.height = '90vh'
+            }
         }
-        contentRef.current.style.minHeight = `90vh`;
-    }, [headerRef, contentRef]);
+
+        updateContentHeight()
+        window.addEventListener('resize', updateContentHeight)
+        return () => {
+            window.removeEventListener('resize', updateContentHeight)
+        }
+    }, []);
+
+    const baseContentStyle: React.CSSProperties = {
+        flex: '1 1 auto',
+        overflowY: 'auto',
+    }
 
     const contentStyle: React.CSSProperties = homePage ? {
+        ...baseContentStyle,
         width: "100vw",
         background: '#000088',
         top: 0,
@@ -49,10 +66,11 @@ export default function RootLayout({
         alignContent: "center",
         justifyContent: "center",
     } : {
+        ...baseContentStyle,
     }
 
     return (
-        <Layout>
+        <Layout style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <Header ref={headerRef} style={headerStyle}>
                 <Flex gap='small' align='center' style={{ width: '100%' }}>
                     <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>

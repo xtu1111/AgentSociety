@@ -1697,11 +1697,30 @@ class SimulationEngine:
                 )
                 user_messages = []
                 for pending_dialog in pending_dialogs:
+                    content = pending_dialog.content
+                    preferred_language = None
+                    if content:
+                        try:
+                            parsed = json.loads(content)
+                        except (TypeError, ValueError):
+                            parsed = None
+                        if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+                            content = parsed["content"]
+                            lang = parsed.get("preferred_language")
+                            if isinstance(lang, str) and lang:
+                                preferred_language = lang
                     user_messages.append(
                         Message(
                             from_id=None,
                             to_id=pending_dialog.agent_id,
-                            payload={"content": pending_dialog.content},
+                            payload={
+                                "content": content,
+                                **(
+                                    {"preferred_language": preferred_language}
+                                    if preferred_language
+                                    else {}
+                                ),
+                            },
                             created_at=pending_dialog.created_at,
                             kind=MessageKind.USER_CHAT,
                             day=pending_dialog.day,

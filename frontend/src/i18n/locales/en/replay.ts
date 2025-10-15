@@ -39,11 +39,11 @@ export default {
             broadcastLabel: "Broadcast targets",
             broadcastPlaceholder: "Select additional agents to interview",
             placeholder: "Type your question for the selected agents…",
-            hint: "Press Enter to send, Shift+Enter for a new line.",
+            hint: "Press Ctrl+Enter (Cmd+Enter on macOS) to send. Enter adds a new line.",
             sendResult: "Sent question to {{success}} agent(s) ({{failure}} failed)",
             sendFailure: "Failed to send to {{name}} (status {{status}})",
             needTarget: "Select at least one agent to interview.",
-            template: "I noticed around {{changeTime}} your sentiment shifted from {{from}} to {{to}}. Could you share what happened by {{currentTime}}?",
+            template: "{{changeTime}}ごろにあなたの感情が{{from}}から{{to}}へ変化したようです。{{currentTime}}までに何があったのか教えていただけますか？",
             noTimeline: "No timeline selected"
         },
         relationshipGraph: {

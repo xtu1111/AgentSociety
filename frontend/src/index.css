@@ -26,9 +26,16 @@
     -webkit-box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
 }
 
+html,
+body,
+#root {
+    height: 100%;
+}
+
 body {
     margin: 0px;
     color: #FFFFFF;
+    overflow: hidden;
     /* display: flex; */
 }
 
@@ -105,6 +112,8 @@ body {
     height: calc(100vh - 68px - 60px);
     overflow: auto;
 
+    pointer-events: auto;
+
     backdrop-filter: blur(40px);
 
     /* 增加向左侧收起的动画效果 */
@@ -113,6 +122,11 @@ body {
 
 .left-inner.collapsed {
     transform: translateX(-100%);
+    pointer-events: none;
+    width: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
 }
 
 .left-info-block {
@@ -180,7 +194,7 @@ body {
     width: 21vw;
     display: flex;
     flex-direction: column;
-    overflow: visible;
+    overflow: hidden;
 }
 
 .relationship-edges-overlay {
@@ -352,9 +366,12 @@ body {
 
 .right-inner .tabs .ant-tabs-tabpane {
     height: 100%;
+    min-height: 0;
+}
+
+.right-inner .tabs .ant-tabs-tabpane-active {
     display: flex;
     flex-direction: column;
-    min-height: 0;
 }
 
 .bubble-no-input {

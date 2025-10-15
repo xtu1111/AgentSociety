@@ -306,6 +306,12 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
 
         if (hitToolbar) return;
 
+        const hitNode =
+            targetEl?.closest?.('[data-role="relationship-node"]') ||
+            (Array.isArray(path) && path.some((n) => (n as Element)?.closest?.('[data-role="relationship-node"]')));
+
+        if (hitNode) return;
+
         e.currentTarget.setPointerCapture?.(e.pointerId);
         draggingRef.current = true;
         lastPointRef.current = { x: e.clientX, y: e.clientY };
@@ -1273,6 +1279,7 @@ const RelationshipGraphPanel: React.FC<RelationshipGraphPanelProps> = ({
                     {nodesForRender.map((node) => (
                         <g
                             key={node.id}
+                            data-role="relationship-node"
                             transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
                             onClick={(event) => handleNodeClick(node, event)}
                             style={{ cursor: 'pointer' }}

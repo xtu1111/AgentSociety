@@ -3,7 +3,7 @@ import { AndroidOutlined, ArrowUpOutlined, CommentOutlined, ProfileOutlined, Smi
 import { AgentDialog, ApiMetric } from './components/type';
 import { Bubble } from '@ant-design/x';
 import { parseT } from '../../components/util';
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { StoreContext } from './store';
 import { Model, Survey as SurveyUI } from 'survey-react-ui';
@@ -110,7 +110,7 @@ const roles: GetProp<typeof Bubble.List, 'roles'> = {
 
 export const RightPanel = observer(() => {
     const store = useContext(StoreContext);
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
 
     const agent = store.clickedAgent;
     const agentDialogs = store.clickedAgentDialogs;
@@ -119,8 +119,6 @@ export const RightPanel = observer(() => {
     const [content, setContent] = useState<string>('');
     const [openPreview, setOpenPreview] = useState(false);
     const [previewSurvey, setPreviousSurvey] = useState<string>();
-    const [selectedTargets, setSelectedTargets] = useState<number[]>([]);
-    const [hasTouchedTargets, setHasTouchedTargets] = useState(false);
     const [isSending, setIsSending] = useState(false);
 
     // 生成Select选项
@@ -197,51 +195,17 @@ export const RightPanel = observer(() => {
         ? `${t('replay.day', { day: previousSnapshot.day })} ${parseT(previousSnapshot.t)}`
         : timelineLabel;
 
-    const agentChoices = useMemo(() => {
-        return Array.from(store.agents.values()).map((agentRecord) => {
-            const sentiment = extractSentiment(agentRecord.status);
-            return {
-                value: agentRecord.id,
-                label: `${agentRecord.name ?? 'Agent'} (#${agentRecord.id})`,
-                sentiment,
-            };
-        });
-    }, [store.agents]);
-
-    const suggestedTargets = useMemo(() => {
-        return agentChoices
-            .filter((choice) => typeof choice.sentiment === 'number' && choice.sentiment < 0)
-            .map((choice) => choice.value);
-    }, [agentChoices]);
-
-    useEffect(() => {
-        if (!hasTouchedTargets && selectedTargets.length === 0 && suggestedTargets.length > 0) {
-            setSelectedTargets(suggestedTargets.slice(0, Math.min(suggestedTargets.length, 10)));
-        }
-    }, [hasTouchedTargets, selectedTargets.length, suggestedTargets]);
-
-    useEffect(() => {
-        setHasTouchedTargets(false);
-    }, [agent?.id]);
-
     const composerModeText = allowInterview
         ? isRunning
             ? t('replay.chatbox.composer.liveMode')
             : t('replay.chatbox.composer.postRunMode')
         : t('replay.chatbox.composer.readOnly');
 
-    const resolvedTargets = useMemo<number[]>(() => {
-        if (selectedTargets.length > 0) {
-            return Array.from(new Set(selectedTargets));
-        }
-        return agent ? [agent.id] : [];
-    }, [agent?.id, selectedTargets]);
-
     const sendDisabled =
         !allowInterview ||
         isSending ||
         content.trim().length === 0 ||
-        resolvedTargets.length === 0;
+        !agent;
 
     const handleSend = async () => {
         if (!allowInterview || isSending) {
@@ -251,69 +215,73 @@ export const RightPanel = observer(() => {
         if (trimmed.length === 0) {
             return;
         }
-        const targets = resolvedTargets;
-        if (targets.length === 0) {
+        if (!agent) {
             message.warning(t('replay.chatbox.composer.needTarget'));
             return;
         }
         setIsSending(true);
         try {
-            const batchId =
-                targets.length > 1
-                    ? `broadcast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-                    : undefined;
+            let storedContent = trimmed;
+            const preferredLanguage = i18n.language === 'en' ? 'ja' : undefined;
+            if (preferredLanguage) {
+                storedContent = JSON.stringify({
+                    content: trimmed,
+                    preferred_language: preferredLanguage,
+                });
+            }
             const payload = {
-                content,
+                content: storedContent,
                 day: store.currentTime?.day ?? 0,
                 t: store.currentTime?.t ?? 0,
-                batch_id: batchId,
-                mode: targets.length > 1 ? 'broadcast' : undefined,
             };
-            const responses = await Promise.all(
-                targets.map(async (targetId) => {
-                    try {
-                        const res = await fetchCustom(
-                            `/api/experiments/${store.expID}/agents/${targetId}/dialog`,
-                            {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload),
-                            }
-                        );
-                        return { targetId, ok: res.ok, status: res.status };
-                    } catch (err) {
-                        console.error('Failed to send message:', err);
-                        return { targetId, ok: false, status: 500 };
+            try {
+                const res = await fetchCustom(
+                    `/api/experiments/${store.expID}/agents/${agent.id}/dialog`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
                     }
-                })
-            );
-            const successes = responses.filter((r) => r.ok).length;
-            const failures = responses.filter((r) => !r.ok);
-            if (successes > 0) {
-                message.success(
-                    t('replay.chatbox.composer.sendResult', {
-                        success: successes,
-                        failure: failures.length,
-                    })
                 );
-                setContent('');
-            }
-            failures.forEach((failure) => {
-                const targetAgent = store.agents.get(failure.targetId);
+                if (res.ok) {
+                    message.success(
+                        t('replay.chatbox.composer.sendResult', {
+                            success: 1,
+                            failure: 0,
+                        })
+                    );
+                    setContent('');
+                } else {
+                    message.error(
+                        t('replay.chatbox.composer.sendFailure', {
+                            name: agent.name ?? agent.id,
+                            status: res.status,
+                        })
+                    );
+                }
+            } catch (err) {
+                console.error('Failed to send message:', err);
                 message.error(
                     t('replay.chatbox.composer.sendFailure', {
-                        name: targetAgent?.name ?? failure.targetId,
-                        status: failure.status,
+                        name: agent.name ?? agent.id,
+                        status: 500,
                     })
                 );
-            });
+            }
         } finally {
             setIsSending(false);
         }
     };
 
     const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
+        if (event.key !== 'Enter') {
+            return;
+        }
+        const nativeEvent = event.nativeEvent as KeyboardEvent;
+        if (nativeEvent.isComposing) {
+            return;
+        }
+        if (event.ctrlKey || event.metaKey) {
             event.preventDefault();
             if (!sendDisabled) {
                 void handleSend();
@@ -531,24 +499,6 @@ export const RightPanel = observer(() => {
                                 <Button size="small" onClick={handleInsertTemplate} disabled={!latestSnapshot}>
                                     {t('replay.chatbox.composer.insertTemplate')}
                                 </Button>
-                            </div>
-                            <div>
-                                <span style={{ display: 'block', fontSize: 12, marginBottom: 4, color: '#475569' }}>
-                                    {t('replay.chatbox.composer.broadcastLabel')}
-                                </span>
-                                <Select
-                                    mode="multiple"
-                                    allowClear
-                                    value={selectedTargets}
-                                    style={{ width: '100%' }}
-                                    placeholder={t('replay.chatbox.composer.broadcastPlaceholder')}
-                                    options={agentChoices.map(({ value, label }) => ({ value, label }))}
-                                    optionFilterProp="label"
-                                    onChange={(values) => {
-                                        setHasTouchedTargets(true);
-                                        setSelectedTargets(Array.isArray(values) ? (values as number[]) : []);
-                                    }}
-                                />
                             </div>
                         </div>
                         <div

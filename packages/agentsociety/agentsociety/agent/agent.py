@@ -334,7 +334,12 @@ Question: {survey_prompt}"""
         )
         return survey_response
 
-    async def do_interview(self, question: str) -> str:
+    async def do_interview(
+        self,
+        question: str,
+        *,
+        preferred_language: Optional[str] = None,
+    ) -> str:
         """
         Generate a response to a user's chat question based on the agent's memory and current state.
 
@@ -361,6 +366,13 @@ If you encounter a question you cannot answer or are unsure about, simply reply 
 Keep your responses concise and clear.
         """
         dialog.append({"role": "system", "content": system_prompt})
+
+        if preferred_language:
+            language_prompt = None
+            if preferred_language.lower() in {"ja", "ja-jp", "japanese"}:
+                language_prompt = "必ず自然な日本語で回答してください。質問が他の言語で書かれていても、日本語で丁寧に答えてください。"
+            if language_prompt:
+                dialog.append({"role": "system", "content": language_prompt})
 
         # Add memory context
         background_story = await self.status.get("background_story")
@@ -390,6 +402,7 @@ Keep your responses concise and clear.
             - `question` (`str`): The interview data containing the content of the user's message.
         """
         question = message.payload["content"]
+        preferred_language = message.payload.get("preferred_language") if isinstance(message.payload, dict) else None
         if self.environment is None:
             raise ValueError("Environment is not initialized")
         day, t = self.environment.get_datetime()
@@ -406,7 +419,7 @@ Keep your responses concise and clear.
             await self.database_writer.write_dialogs(  # type:ignore
                 [storage_dialog]
             )
-        response = await self.do_interview(question)
+        response = await self.do_interview(question, preferred_language=preferred_language)
         storage_dialog = StorageDialog(
             id=self.id,
             day=day,

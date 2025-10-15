@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from fastapi import FastAPI
 from sqlalchemy import select
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import yaml
 
 from ...llm import LLM, LLMConfig
+from ...commercial.billing.models import ExperimentBillConfig
 from ...storage import DatabaseWriter
 from ...storage.model import Experiment as StorageExperiment
 from ...storage.type import (
@@ -20,6 +21,7 @@ from ...storage.type import (
     StoragePendingDialog,
 )
 from ..models.experiment import ExperimentStatus
+from ..models.config import LLMConfig as DBLLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -154,17 +156,141 @@ class PostRunInterviewWorker:
             return None
 
         try:
-            llm_configs = [
-                LLMConfig.model_validate(cfg) for cfg in config_dict.get("llm", [])
-            ]
-            if not llm_configs:
+            llm_config_dicts = await self._resolve_llm_configs(experiment, config_dict)
+            if not llm_config_dicts:
+                logger.warning("No usable LLM configuration for experiment %s", exp_id)
                 return None
+
+            deduped: list[dict[str, Any]] = []
+            seen: set[tuple[Any, ...]] = set()
+            for cfg in llm_config_dicts:
+                if not isinstance(cfg, dict):
+                    continue
+                api_key = cfg.get("api_key")
+                if not api_key:
+                    continue
+                fingerprint = (
+                    cfg.get("provider"),
+                    cfg.get("model"),
+                    cfg.get("base_url"),
+                    api_key,
+                )
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                deduped.append(cfg)
+
+            if not deduped:
+                logger.warning("Resolved LLM configs for %s lack API keys", exp_id)
+                return None
+
+            llm_configs = [LLMConfig.model_validate(cfg) for cfg in deduped]
             llm = LLM(llm_configs)
             self._llm_cache[exp_id] = llm
             return llm
         except Exception:  # pragma: no cover - defensive logging
             logger.exception("Unable to construct LLM for experiment %s", exp_id)
             return None
+
+    async def _resolve_llm_configs(
+        self, experiment: StorageExperiment, config_dict: dict[str, Any]
+    ) -> List[dict[str, Any]]:
+        """Collect usable LLM configurations for an experiment."""
+
+        exp_id = str(experiment.id)
+        partials = config_dict.get("llm", [])
+        resolved: List[dict[str, Any]] = []
+        pending_lookup: List[dict[str, Any]] = []
+
+        if isinstance(partials, list):
+            for entry in partials:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("api_key"):
+                    resolved.append(entry)
+                else:
+                    pending_lookup.append(entry)
+
+        if not pending_lookup:
+            return resolved
+
+        try:
+            async with self._app.state.get_db() as session:  # type: ignore[attr-defined]
+                db = cast(AsyncSession, session)
+
+                tenant_candidates = [experiment.tenant_id, "", "default"]
+
+                # Prefer the exact config recorded for billing (if any).
+                stmt = select(ExperimentBillConfig.llm_config_id).where(
+                    ExperimentBillConfig.tenant_id == experiment.tenant_id,
+                    ExperimentBillConfig.exp_id == experiment.id,
+                )
+                llm_config_id = (await db.execute(stmt)).scalar_one_or_none()
+
+                candidate_configs: List[dict[str, Any]] = []
+
+                if llm_config_id is not None:
+                    stmt = select(DBLLMConfig.config).where(
+                        DBLLMConfig.tenant_id.in_(tenant_candidates),
+                        DBLLMConfig.id == llm_config_id,
+                    )
+                    cfg = (await db.execute(stmt)).scalar_one_or_none()
+                    if cfg is not None:
+                        if isinstance(cfg, list):
+                            candidate_configs.extend(
+                                [c for c in cfg if isinstance(c, dict)]
+                            )
+                        elif isinstance(cfg, dict):
+                            candidate_configs.append(cfg)
+
+                catalog_entries: List[dict[str, Any]] = []
+                if pending_lookup:
+                    stmt = select(DBLLMConfig.config).where(
+                        DBLLMConfig.tenant_id.in_(tenant_candidates)
+                    )
+                    rows = (await db.execute(stmt)).scalars().all()
+                    for row in rows:
+                        if isinstance(row, list):
+                            catalog_entries.extend(
+                                [c for c in row if isinstance(c, dict)]
+                            )
+                        elif isinstance(row, dict):
+                            catalog_entries.append(row)
+
+                for partial in pending_lookup:
+                    provider = partial.get("provider")
+                    model = partial.get("model")
+                    if not provider or not model:
+                        continue
+                    base_url = partial.get("base_url")
+
+                    match = next(
+                        (
+                            cfg
+                            for cfg in catalog_entries
+                            if cfg.get("provider") == provider
+                            and cfg.get("model") == model
+                            and (
+                                not base_url
+                                or cfg.get("base_url") == base_url
+                            )
+                        ),
+                        None,
+                    )
+                    if match:
+                        candidate_configs.append(match)
+
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to resolve LLM config from catalog for experiment %s", exp_id
+            )
+            candidate_configs = []
+
+        for cfg in candidate_configs:
+            if cfg.get("api_key"):
+                resolved.append(cfg)
+
+        return resolved
 
     async def _get_profiles(
         self, writer: DatabaseWriter, exp_id: str
@@ -203,6 +329,7 @@ class PostRunInterviewWorker:
         pending: StoragePendingDialog,
     ) -> None:
         agent_profile = profiles.get(pending.agent_id, {})
+        question_text, preferred_language = _parse_dialog_content(pending.content)
         agent_name = agent_profile.get("name") or f"Agent {pending.agent_id}"
         history = await writer.read_dialogs(
             agent_id=pending.agent_id,
@@ -252,6 +379,17 @@ class PostRunInterviewWorker:
                     "and reference relevant experiences when helpful."
                 ),
             },
+        ]
+
+        if preferred_language and preferred_language.lower() in {"ja", "ja-jp", "japanese"}:
+            dialog.append(
+                {
+                    "role": "system",
+                    "content": "必ず自然な日本語で回答してください。質問が他の言語で書かれていても、日本語で丁寧に答えてください。",
+                }
+            )
+
+        dialog.append(
             {
                 "role": "user",
                 "content": (
@@ -259,10 +397,10 @@ class PostRunInterviewWorker:
                     + "\n\n"
                     + timeline_hint
                     + "\nThe interviewer asks: "
-                    + pending.content
+                    + question_text
                 ),
-            },
-        ]
+            }
+        )
 
         response_text: Optional[str] = None
         try:
@@ -287,7 +425,7 @@ class PostRunInterviewWorker:
                     t=pending.t,
                     type=StorageDialogType.User,
                     speaker="user",
-                    content=pending.content,
+                    content=question_text,
                     created_at=datetime.now(timezone.utc),
                 ),
                 StorageDialog(
@@ -426,3 +564,18 @@ def create_post_run_worker(app: FastAPI) -> PostRunInterviewWorker:
     worker = PostRunInterviewWorker(app)
     worker.start()
     return worker
+
+
+def _parse_dialog_content(raw: str) -> Tuple[str, Optional[str]]:
+    if not raw:
+        return "", None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return raw, None
+    if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+        language = parsed.get("preferred_language")
+        if isinstance(language, str) and language:
+            return parsed["content"], language
+        return parsed["content"], None
+    return raw, None
