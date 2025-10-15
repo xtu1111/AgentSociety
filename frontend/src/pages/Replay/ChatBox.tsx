@@ -87,6 +87,35 @@ const normalizeExperimentStatus = (
     return undefined;
 };
 
+const sentimentColour = (value: number | undefined): string => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '#00FF00';
+    }
+    if (value >= 0.2) {
+        return '#0000FF';
+    }
+    if (value <= -0.2) {
+        return '#FF0000';
+    }
+    return '#00FF00';
+};
+
+const formatSentiment = (value: number | undefined): string => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '—';
+    }
+    return value.toFixed(2);
+};
+
+const SentimentName: React.FC<{ name?: string; value?: number }> = ({ name, value }) => {
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span>{name ?? '—'}</span>
+            <span style={{ color: sentimentColour(value), fontWeight: 600 }}>{formatSentiment(value)}</span>
+        </span>
+    );
+};
+
 const roles: GetProp<typeof Bubble.List, 'roles'> = {
     self: {
         placement: 'start',
@@ -206,6 +235,44 @@ export const RightPanel = observer(() => {
         isSending ||
         content.trim().length === 0 ||
         !agent;
+
+    const agentSentimentAt = (agentId: number | undefined, day: number, t: number, fallback?: number): number | undefined => {
+        if (agentId === undefined) {
+            return fallback;
+        }
+        const targetTime = day * 86400 + t;
+        if (agent && agentId === agent.id) {
+            const match = [...sentimentSnapshots]
+                .reverse()
+                .find((snapshot) => snapshot.day * 86400 + snapshot.t <= targetTime);
+            if (match) {
+                return match.value;
+            }
+        }
+        const storeAgent = store.agents.get(agentId);
+        if (storeAgent !== undefined) {
+            const parsed = extractSentiment(storeAgent.status);
+            if (typeof parsed === 'number') {
+                return parsed;
+            }
+        }
+        if (typeof fallback === 'number') {
+            return fallback;
+        }
+        return undefined;
+    };
+
+    const resolveAgentIdByName = (name: string | undefined): number | undefined => {
+        if (!name) {
+            return undefined;
+        }
+        for (const [id, candidate] of store.agents.entries()) {
+            if (candidate.name === name) {
+                return id;
+            }
+        }
+        return undefined;
+    };
 
     const handleSend = async () => {
         if (!allowInterview || isSending) {
@@ -399,7 +466,26 @@ export const RightPanel = observer(() => {
         let lastOtherSpeaker: number | undefined;
         const items = uniqueDialogs.map((m, i) => {
             const { role, name } = getRoleByChatMessage(m);
-            let headerName = name;
+            let headerName: React.ReactNode = name;
+            const speakerId = (() => {
+                if (m.type === 0) {
+                    return agent?.id;
+                }
+                if (m.type === 1) {
+                    if (m.speaker === '' || m.speaker === agent?.id.toString()) {
+                        return agent?.id;
+                    }
+                    const parsed = Number(m.speaker);
+                    return Number.isFinite(parsed) ? parsed : undefined;
+                }
+                return undefined;
+            })();
+            const speakerSentiment = agentSentimentAt(
+                speakerId,
+                m.day,
+                m.t,
+                typeof m.sentiment === 'number' ? m.sentiment : undefined
+            );
             if (m.type === 1) {
                 if (m.speaker === "" || m.speaker === agent?.id.toString()) {
                     let toName =
@@ -425,10 +511,24 @@ export const RightPanel = observer(() => {
                             }
                         }
                     }
-                    headerName = `${name} to ${toName ?? 'whom'}`;
+                    const receiverId =
+                        m.receiverId ?? resolveAgentIdByName(toName ?? undefined);
+                    const receiverSentiment = agentSentimentAt(receiverId, m.day, m.t, undefined);
+                    headerName = (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <SentimentName name={name} value={speakerSentiment} />
+                            <span style={{ color: '#94a3b8' }}>→</span>
+                            <SentimentName name={toName ?? 'whom'} value={receiverSentiment} />
+                        </span>
+                    );
                 } else {
                     lastOtherSpeaker = parseInt(m.speaker);
+                    const otherName =
+                        store.agents.get(lastOtherSpeaker)?.name ?? name;
+                    headerName = <SentimentName name={otherName} value={speakerSentiment} />;
                 }
+            } else if (m.type === 0) {
+                headerName = <SentimentName name={name} value={speakerSentiment} />;
             }
             return {
                 key: `${m.id}-${i}`,
@@ -437,7 +537,12 @@ export const RightPanel = observer(() => {
                 content: m.content,
                 header: (
                     <div>
-                        {headerName} ({t('replay.day', { day: m.day })} {parseT(m.t)})
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            {headerName}
+                            <span style={{ color: '#475569', fontSize: 12 }}>
+                                ({t('replay.day', { day: m.day })} {parseT(m.t)})
+                            </span>
+                        </span>
                     </div>
                 ),
             };
